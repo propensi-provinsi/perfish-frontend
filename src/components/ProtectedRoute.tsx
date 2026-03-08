@@ -33,16 +33,16 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <h1 className="text-6xl font-bold text-red-500">403</h1>
-        <p className="text-xl text-gray-600">Access Denied</p>
+        <h1 className="text-6xl font-bold text-red">403</h1>
+        <p className="text-xl text-gray-600">Akses Ditolak</p>
         <p className="text-gray-400">
-          You don&apos;t have permission to view this page.
+          Anda tidak memiliki izin untuk melihat halaman ini.
         </p>
         <button
-          onClick={() => router.push("/dashboard")}
-          className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          onClick={() => router.push("/home")}
+          className="mt-4 rounded-lg bg-cyan px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-hover transition-colors"
         >
-          Go to Dashboard
+          Kembali ke Home
         </button>
       </div>
     );

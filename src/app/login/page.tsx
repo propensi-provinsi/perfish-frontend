@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
@@ -17,10 +18,10 @@ export default function LoginPage() {
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
-    if (!email.trim()) errs.email = "Email is required";
+    if (!email.trim()) errs.email = "Email wajib diisi";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      errs.email = "Invalid email format";
-    if (!password) errs.password = "Password is required";
+      errs.email = "Format email tidak valid";
+    if (!password) errs.password = "Password wajib diisi";
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -33,13 +34,13 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login({ email, password });
-      router.push("/dashboard");
+      router.push("/home");
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: { data?: { message?: string } };
       };
       setError(
-        axiosErr.response?.data?.message || "Login failed. Check your credentials."
+        axiosErr.response?.data?.message || "Login gagal. Periksa kembali email dan password Anda."
       );
     } finally {
       setSubmitting(false);
@@ -48,13 +49,16 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow">
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-6">
-          Login to Perfish
-        </h1>
+      <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
+        {/* Logo + Title */}
+        <div className="flex flex-col items-center mb-8">
+          <Image src="/logo.png" alt="PERFISH" width={56} height={56} />
+          <h1 className="mt-3 text-2xl font-bold text-navy">PERFISH</h1>
+          <p className="text-sm text-gray-500">Masuk ke akun Anda</p>
+        </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          <div className="mb-4 rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">
             {error}
           </div>
         )}
@@ -62,35 +66,39 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Email
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="john@example.com"
+              className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
+                focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
+                transition-colors"
+              placeholder="nama@email.com"
             />
             {fieldErrors.email && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+              <p className="mt-1 text-xs text-red">{fieldErrors.email}</p>
             )}
           </div>
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Password
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="Enter your password"
+              className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
+                focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
+                transition-colors"
+              placeholder="Masukkan password"
             />
             {fieldErrors.password && (
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red">
                 {fieldErrors.password}
               </p>
             )}
@@ -99,16 +107,18 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-cyan px-4 py-2.5 text-sm font-semibold text-white
+              hover:bg-cyan-hover active:scale-[0.98] disabled:opacity-50
+              transition-all"
           >
-            {submitting ? "Logging in…" : "Login"}
+            {submitting ? "Masuk…" : "Masuk"}
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-gray-500">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-blue-600 hover:underline">
-            Register
+        <p className="mt-6 text-center text-sm text-gray-500">
+          Belum punya akun?{" "}
+          <Link href="/register" className="font-medium text-cyan hover:underline">
+            Daftar
           </Link>
         </p>
       </div>
