@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -8,19 +10,59 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-montserrat);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-navy: #1A2B3C;
+  --color-navy-light: #243548;
+  --color-cyan: #2CABDB;
+  --color-cyan-hover: #2399C2;
+  --color-cyan-light: #E0F5FB;
+  --color-green: #10B981;
+  --color-green-light: #D1FAE5;
+  --color-red: #EF4444;
+  --color-red-light: #FECACA;
+  --color-yellow: #F59E0B;
+  --color-yellow-light: #FEF3C7;
+  --color-widget-bg: #3865A215;
+  --color-dark-page: #0f1724;
+  --color-dark-card: #1a2332;
+  --color-dark-section: #1e2d3d;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-montserrat), system-ui, sans-serif;
+}
+
+/* ── Thin scrollbar ─────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ── Dark mode scrollbar ────────────────────────────── */
+.dark * {
+  scrollbar-color: #4b5563 transparent;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 3px;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
 }
