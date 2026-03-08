@@ -103,8 +103,8 @@ function ProfileContent() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-navy">Profil Saya</h1>
-        <p className="text-sm text-gray-500 mt-1">Kelola informasi akun Anda</p>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">Profil Saya</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola informasi akun Anda</p>
       </div>
 
       {successMsg && (
@@ -118,20 +118,20 @@ function ProfileContent() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-6 shadow-sm">
         {!editing ? (
           /* ── View Mode ──────────────────────────────── */
           <>
             <dl className="space-y-4">
               <div>
                 <dt className="text-sm text-gray-500">Nama</dt>
-                <dd className="mt-1 text-gray-900 font-medium">
+                <dd className="mt-1 text-gray-900 dark:text-gray-100 font-medium">
                   {profile?.name}
                 </dd>
               </div>
               <div>
                 <dt className="text-sm text-gray-500">Email</dt>
-                <dd className="mt-1 text-gray-900 font-medium">
+                <dd className="mt-1 text-gray-900 dark:text-gray-100 font-medium">
                   {profile?.email}
                 </dd>
               </div>
@@ -153,7 +153,7 @@ function ProfileContent() {
               </div>
               <div>
                 <dt className="text-sm text-gray-500">Login Terakhir</dt>
-                <dd className="mt-1 text-gray-900 text-sm">
+                <dd className="mt-1 text-gray-900 dark:text-gray-100 text-sm">
                   {profile?.lastLoginAt
                     ? new Date(profile.lastLoginAt).toLocaleString("id-ID")
                     : "N/A"}
@@ -161,7 +161,7 @@ function ProfileContent() {
               </div>
               <div>
                 <dt className="text-sm text-gray-500">Bergabung Sejak</dt>
-                <dd className="mt-1 text-gray-900 text-sm">
+                <dd className="mt-1 text-gray-900 dark:text-gray-100 text-sm">
                   {profile?.createdAt
                     ? new Date(profile.createdAt).toLocaleString("id-ID")
                     : "N/A"}
@@ -180,14 +180,14 @@ function ProfileContent() {
           /* ── Edit Mode ──────────────────────────────── */
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Nama
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-3.5 py-2.5 text-sm
                   focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
                   transition-colors"
               />
@@ -198,14 +198,14 @@ function ProfileContent() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Email
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-3.5 py-2.5 text-sm
                   focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
                   transition-colors"
               />
@@ -234,8 +234,8 @@ function ProfileContent() {
                   setFieldErrors({});
                   setError(null);
                 }}
-                className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium
-                  text-gray-700 hover:bg-gray-50 transition-colors"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2.5 text-sm font-medium
+                  text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
               >
                 Batal
               </button>

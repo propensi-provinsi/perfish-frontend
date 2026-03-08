@@ -44,7 +44,7 @@ export const mainMenu: MenuItem[] = [
     icon: HiOutlineClipboardDocumentList,
     children: [
       { key: "md-fish", label: "Data Ikan", href: "/master-data/fish" },
-      { key: "md-storage", label: "Komp. Storage", href: "/master-data/storage" },
+      { key: "md-storage", label: "Cold Storage", href: "/master-data/storage" },
       { key: "md-financial", label: "Financial Support", href: "/master-data/financial-support" },
       { key: "md-outbound", label: "Komp. Pengeluaran", href: "/master-data/outbound-components" },
       { key: "md-sales", label: "Komp. Penjualan", href: "/master-data/sales-components" },

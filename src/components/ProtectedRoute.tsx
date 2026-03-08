@@ -34,8 +34,8 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
         <h1 className="text-6xl font-bold text-red">403</h1>
-        <p className="text-xl text-gray-600">Akses Ditolak</p>
-        <p className="text-gray-400">
+        <p className="text-xl text-gray-600 dark:text-gray-300">Akses Ditolak</p>
+        <p className="text-gray-400 dark:text-gray-500">
           Anda tidak memiliki izin untuk melihat halaman ini.
         </p>
         <button

@@ -29,7 +29,7 @@ export default function AppShell({ children }: AppShellProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-page transition-colors">
       <Sidebar
         open={mobileOpen}
         collapsed={collapsed}
@@ -41,7 +41,6 @@ export default function AppShell({ children }: AppShellProps) {
       <div
         className={`
           transition-all duration-300 ease-in-out
-          md:ml-64
           ${collapsed ? "md:ml-16" : "md:ml-64"}
         `}
       >

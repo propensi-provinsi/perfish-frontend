@@ -115,7 +115,7 @@ function HomeContent() {
 
       {/* Quick access grid */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Menu Utama
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -125,7 +125,7 @@ function HomeContent() {
               <a
                 key={card.label}
                 href={card.href}
-                className="group flex items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-cyan/40 transition-all"
+                className="group flex items-start gap-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-5 shadow-sm hover:shadow-md hover:border-cyan/40 transition-all"
               >
                 <div
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${card.color}`}
@@ -133,10 +133,10 @@ function HomeContent() {
                   <Icon className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 group-hover:text-cyan transition-colors">
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-cyan transition-colors">
                     {card.label}
                   </h3>
-                  <p className="mt-0.5 text-sm text-gray-500">
+                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                     {card.description}
                   </p>
                 </div>

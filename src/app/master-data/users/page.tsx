@@ -73,8 +73,8 @@ function UsersContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-navy">User Management</h1>
-        <p className="text-sm text-gray-500 mt-1">Kelola pengguna dan role akses</p>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">User Management</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola pengguna dan role akses</p>
       </div>
 
       {successMsg && (
@@ -91,45 +91,44 @@ function UsersContent() {
       {loading ? (
         <p className="text-gray-400">Memuat pengguna…</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-dark-section">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Nama
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Email
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Role
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Login Terakhir
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Aksi
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {users.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                     {user.name}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {user.email}
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {editingId === user.id ? (
                       <select
                         value={newRole}
                         onChange={(e) => setNewRole(e.target.value)}
-                        className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm
+                        className="rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-2.5 py-1.5 text-sm
                           focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20"
                       >
                         <option value="">Pilih role</option>
@@ -150,7 +149,7 @@ function UsersContent() {
                       {user.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                     {user.lastLoginAt
                       ? new Date(user.lastLoginAt).toLocaleString("id-ID")
                       : "Belum pernah"}
@@ -171,8 +170,8 @@ function UsersContent() {
                             setEditingId(null);
                             setNewRole("");
                           }}
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium
-                            text-gray-700 hover:bg-gray-50 transition-colors"
+                          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium
+                            text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
                         >
                           Batal
                         </button>
@@ -183,8 +182,8 @@ function UsersContent() {
                           setEditingId(user.id);
                           setNewRole(user.role);
                         }}
-                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium
-                          text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium
+                          text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
                       >
                         Edit Role
                       </button>
