@@ -7,6 +7,7 @@ import {
   HiOutlineChartBarSquare,
   HiOutlineClipboardDocumentList,
   HiOutlineCube,
+  HiOutlineExclamationTriangle,
   HiOutlineShoppingCart,
   HiOutlineMagnifyingGlass,
 } from "react-icons/hi2";
@@ -42,6 +43,13 @@ const quickCards: QuickCard[] = [
     icon: HiOutlineCube,
     href: "/batch-activity",
     color: "bg-yellow/10 text-yellow",
+  },
+  {
+    label: "Expired Alert",
+    description: "Notifikasi umur simpan batch",
+    icon: HiOutlineExclamationTriangle,
+    href: "/expired-alert",
+    color: "bg-red/10 text-red",
   },
   {
     label: "Pembelian Ikan",
