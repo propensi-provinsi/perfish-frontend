@@ -44,10 +44,10 @@ const quickCards: QuickCard[] = [
     color: "bg-yellow/10 text-yellow",
   },
   {
-    label: "Pembelian Ikan",
-    description: "Catat pembelian dari supplier",
+    label: "Inbound Ikan",
+    description: "Catat penerimaan ikan dari supplier",
     icon: LuFish,
-    href: "/purchasing",
+    href: "/inbound-ikan",
     color: "bg-cyan/10 text-cyan",
   },
   {
