@@ -6,7 +6,8 @@ export type UserRole =
   | "QC_SPECIALIST"
   | "GUEST"
   | "MARKETING_STAFF"
-  | "WAREHOUSE_STAFF";
+  | "WAREHOUSE_STAFF"
+  | "SBB_STAFF";
 
 export const USER_ROLES: { value: UserRole; label: string }[] = [
   { value: "SUPERADMIN", label: "Superadmin" },
@@ -16,6 +17,7 @@ export const USER_ROLES: { value: UserRole; label: string }[] = [
   { value: "GUEST", label: "Guest" },
   { value: "MARKETING_STAFF", label: "Marketing Staff" },
   { value: "WAREHOUSE_STAFF", label: "Warehouse Staff" },
+  { value: "SBB_STAFF", label: "Staf SBB" },
 ];
 
 export interface RegisterPayload {
