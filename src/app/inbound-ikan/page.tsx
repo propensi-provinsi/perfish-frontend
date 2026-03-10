@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, type FormEvent } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/layout/AppShell";
 import apiClient from "@/lib/api";
 import type {
   ApiResponse,
@@ -14,7 +14,9 @@ import { SUPPLIER_TYPES } from "@/types";
 export default function InboundIkanPage() {
   return (
     <ProtectedRoute allowedRoles={["SBB_STAFF", "SUPERADMIN"]}>
-      <InboundIkanContent />
+      <AppShell>
+        <InboundIkanContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }
@@ -57,44 +59,51 @@ function InboundIkanContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        {/* ── Header ──────────────────────────────────────── */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">Inbound Ikan</h1>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowAddSupplier(true)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              + Tambah Supplier
-            </button>
-            <button
-              onClick={() => setShowAddPenerimaan(true)}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              + Catat Penerimaan
-            </button>
-          </div>
+    <div className="space-y-8">
+      {/* ── Page header ───────────────────────────────────── */}
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            Inbound Ikan
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-xl">
+            Catat penerimaan ikan dari supplier untuk memastikan asal dan volume
+            tercatat dengan akurat sejak awal proses operasional.
+          </p>
         </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowAddSupplier(true)}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-white/5"
+          >
+            + Tambah Supplier
+          </button>
+          <button
+            onClick={() => setShowAddPenerimaan(true)}
+            className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80"
+          >
+            + Catat Penerimaan
+          </button>
+        </div>
+      </section>
 
-        {/* ── Summary Cards ───────────────────────────────── */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── Summary Cards ─────────────────────────────────── */}
+      <section>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard label="Total Penerimaan" value="-" />
           <SummaryCard label="Pending Approval" value="-" />
           <SummaryCard label="Approved" value="-" />
           <SummaryCard label="Rejected" value="-" />
         </div>
+      </section>
 
-        {/* ── Supplier Table (temporary for GET testing) ── */}
-        <div className="mt-8">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            Daftar Supplier
-          </h2>
-          <SupplierTable suppliers={suppliers} loading={loadingSuppliers} />
-        </div>
-      </div>
+      {/* ── Supplier Table (temporary for GET testing) ───── */}
+      <section>
+        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Daftar Supplier
+        </h2>
+        <SupplierTable suppliers={suppliers} loading={loadingSuppliers} />
+      </section>
 
       {/* ── Modals ────────────────────────────────────────── */}
       {showAddSupplier && (
@@ -120,9 +129,11 @@ function InboundIkanContent() {
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm text-center">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-gray-900">{value}</p>
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-6 shadow-sm text-center">
+      <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">
+        {value}
+      </p>
     </div>
   );
 }
@@ -356,13 +367,8 @@ function AddPenerimaanModal({
   onClose: () => void;
 }) {
   const [supplierId, setSupplierId] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (activeSuppliers.length === 0) {
-      setError("Tidak ada supplier aktif. Tambahkan supplier terlebih dahulu.");
-    }
-  }, [activeSuppliers]);
+  const noActiveSuppliers = activeSuppliers.length === 0;
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -370,9 +376,9 @@ function AddPenerimaanModal({
         Catat Penerimaan Ikan Baru
       </h2>
 
-      {error && (
+      {noActiveSuppliers && (
         <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-          {error}
+          Tidak ada supplier aktif. Tambahkan supplier terlebih dahulu.
         </div>
       )}
 
@@ -382,7 +388,6 @@ function AddPenerimaanModal({
             value={supplierId}
             onChange={(e) => {
               setSupplierId(e.target.value);
-              setError(null);
             }}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
