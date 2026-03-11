@@ -3,6 +3,7 @@ import {
   HiOutlineChartBarSquare,
   HiOutlineClipboardDocumentList,
   HiOutlineCube,
+  HiOutlineExclamationTriangle,
   HiOutlineShoppingCart,
   HiOutlineMagnifyingGlass,
   HiOutlineCog6Tooth,
@@ -60,6 +61,15 @@ export const mainMenu: MenuItem[] = [
     href: "/batch-activity",
   },
   {
+    key: "expired-alert",
+    label: "Expired Alert & Notification",
+    icon: HiOutlineExclamationTriangle,
+    children: [
+      { key: "expired-alert-dashboard", label: "Dashboard", href: "/expired-alert" },
+      { key: "expired-alert-config", label: "Konfigurasi Shelf Life", href: "/expired-alert/config" },
+    ],
+  },
+  {
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
@@ -90,7 +100,7 @@ export const mainMenu: MenuItem[] = [
     label: "Order Ikan",
     icon: HiOutlineShoppingCart,
     children: [
-      { key: "order-list", label: "Daftar Order", href: "/orders" },
+      { key: "order-quotation", label: "Quotation", href: "/quotations" },
     ],
   },
   {
