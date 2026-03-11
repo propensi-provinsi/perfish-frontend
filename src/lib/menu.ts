@@ -71,9 +71,15 @@ export const mainMenu: MenuItem[] = [
   },
   {
     key: "purchasing",
-    label: "Pembelian Ikan",
+    label: "Inbound Ikan",
     icon: LuFish,
-    href: "/purchasing",
+    children: [
+      {
+        key: "purchasing-inbound",
+        label: "Inbound Ikan",
+        href: "/inbound-ikan",
+      },
+    ],
   },
   {
     key: "cold-storage",
@@ -94,7 +100,7 @@ export const mainMenu: MenuItem[] = [
     label: "Order Ikan",
     icon: HiOutlineShoppingCart,
     children: [
-      { key: "order-list", label: "Daftar Order", href: "/orders" },
+      { key: "order-quotation", label: "Quotation", href: "/quotations" },
     ],
   },
   {

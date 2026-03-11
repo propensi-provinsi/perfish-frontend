@@ -34,6 +34,14 @@ export default function Navbar() {
           >
             Profile
           </Link>
+          {(user.role === "SBB_STAFF" || user.role === "SUPERADMIN") && (
+            <Link
+              href="/inbound-ikan"
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Inbound Ikan
+            </Link>
+          )}
           {user.role === "SUPERADMIN" && (
             <Link
               href="/admin/users"

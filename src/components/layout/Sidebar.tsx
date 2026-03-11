@@ -170,17 +170,12 @@ export default function Sidebar({
         {/* ── Logo area ───────────────────────────────── */}
         <div className="flex h-16 items-center gap-3 border-b border-white/10 px-4">
           <Image
-            src="/logo.png"
+            src="/logo-w.png"
             alt="PERFISH"
-            width={32}
-            height={32}
+            width={180}
+            height={100}
             className="shrink-0"
           />
-          {(!collapsed || open) && (
-            <span className="text-lg font-bold text-white tracking-wide">
-              PERFISH
-            </span>
-          )}
         </div>
 
         {/* ── Main nav ────────────────────────────────── */}

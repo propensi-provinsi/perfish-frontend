@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
@@ -12,6 +13,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -47,80 +49,118 @@ export default function LoginPage() {
     }
   }
 
+  const inputBase =
+    "w-full rounded-lg border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-xs text-gray-800 placeholder:text-gray-400 focus:border-[#2CABDB] focus:outline-none focus:ring-2 focus:ring-[#2CABDB]/20 transition-all";
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-dark-page p-4 transition-colors">
-      <div className="w-full max-w-md rounded-xl bg-white dark:bg-dark-card p-8 shadow-lg">
-        {/* Logo + Title */}
-        <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="PERFISH" width={56} height={56} />
-          <h1 className="mt-3 text-2xl font-bold text-navy dark:text-white">PERFISH</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Masuk ke akun Anda</p>
+    <main
+      className="relative flex min-h-screen items-center justify-center p-4"
+      style={{ background: "linear-gradient(135deg, #1A2B3C 0%, #2a4158 50%, #3865A2 100%)" }}
+    >
+      {/* Decorative blobs */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="absolute -right-40 -top-40 h-80 w-80 rounded-full opacity-10"
+          style={{ background: "radial-gradient(circle, #2CABDB 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full opacity-10"
+          style={{ background: "radial-gradient(circle, #2CABDB 0%, transparent 70%)" }}
+        />
+      </div>
+
+      <div className="relative w-full max-w-sm">
+        {/* Logo di luar card */}
+        <div className="mb-4 flex justify-center">
+          <Image src="/logo-w.png" alt="PERFISH" width={210} height={46} />
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">
-            {error}
-          </div>
-        )}
+        <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
+          {/* ── Form body ── */}
+          <div className="px-7 py-7">
+            <div className="mb-5 text-center">
+              <h2 className="text-lg font-semibold text-[#1A2B3C]">Masuk ke Akun Anda</h2>
+              <p className="mt-0.5 text-xs text-gray-500">Masukkan email dan password untuk melanjutkan</p>
+            </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-3.5 py-2.5 text-sm
-                focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
-                dark:placeholder:text-gray-500 transition-colors"
-              placeholder="nama@email.com"
-            />
-            {fieldErrors.email && (
-              <p className="mt-1 text-xs text-red">{fieldErrors.email}</p>
+            {error && (
+              <div className="mb-4 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-3">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                <p className="text-xs text-red-500">{error}</p>
+              </div>
             )}
+
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {/* Email */}
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className={inputBase}
+                    placeholder="nama@perfish.com"
+                  />
+                </div>
+                {fieldErrors.email && (
+                  <p className="mt-0.5 text-xs text-red-500">{fieldErrors.email}</p>
+                )}
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${inputBase} pr-9`}
+                    placeholder="Masukkan password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <p className="mt-0.5 text-xs text-red-500">{fieldErrors.password}</p>
+                )}
+              </div>
+
+              <div className="h-2" />
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-1 w-full rounded-lg py-2.5 text-xs font-semibold text-white transition-all active:scale-[0.98] disabled:opacity-60"
+                style={{
+                  background: "linear-gradient(135deg, #2CABDB 0%, #3865A2 100%)",
+                  boxShadow: "0 4px 12px rgba(44, 171, 219, 0.35)",
+                }}
+              >
+                {submitting ? "Masuk…" : "Masuk"}
+              </button>
+            </form>
+
+            <p className="mt-4 text-center text-xs text-gray-500">
+              Belum punya akun?{" "}
+              <Link
+                href="/register"
+                className="font-semibold text-[#2CABDB] hover:text-[#3865A2] transition-colors"
+              >
+                Daftar
+              </Link>
+            </p>
           </div>
-
-          {/* Password */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-3.5 py-2.5 text-sm
-                focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20
-                dark:placeholder:text-gray-500 transition-colors"
-              placeholder="Masukkan password"
-            />
-            {fieldErrors.password && (
-              <p className="mt-1 text-xs text-red">
-                {fieldErrors.password}
-              </p>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded-lg bg-cyan px-4 py-2.5 text-sm font-semibold text-white
-              hover:bg-cyan-hover active:scale-[0.98] disabled:opacity-50
-              transition-all"
-          >
-            {submitting ? "Masuk…" : "Masuk"}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          Belum punya akun?{" "}
-          <Link href="/register" className="font-medium text-cyan hover:underline">
-            Daftar
-          </Link>
-        </p>
+        </div>
       </div>
     </main>
   );
