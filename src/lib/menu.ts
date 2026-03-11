@@ -90,7 +90,7 @@ export const mainMenu: MenuItem[] = [
     label: "Order Ikan",
     icon: HiOutlineShoppingCart,
     children: [
-      { key: "order-list", label: "Daftar Order", href: "/orders" },
+      { key: "order-quotation", label: "Quotation", href: "/quotations" },
     ],
   },
   {
