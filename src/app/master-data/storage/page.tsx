@@ -85,7 +85,7 @@ export default function StorageMasterDataPage() {
     formFields: [
       {
         key: "branchId", label: "Branch", type: "select", required: true,
-        options: branch.data.map((b) => ({ value: b.branchId, label: b.branchName })),
+        options: branch.data.filter((b) => b.isActive).map((b) => ({ value: b.branchId, label: b.branchName })),
       },
       { key: "csCode", label: "Kode Cold Storage", type: "text", required: true, placeholder: "CS-001" },
       { key: "csName", label: "Nama Cold Storage", type: "text", required: true, placeholder: "Cold Storage Utama" },
@@ -136,11 +136,11 @@ export default function StorageMasterDataPage() {
     formFields: [
       {
         key: "coldStorageId", label: "Cold Storage", type: "select", required: true,
-        options: storage.data.map((cs) => ({ value: cs.coldStorageId, label: cs.csName })),
+        options: storage.data.filter((cs) => cs.isActive).map((cs) => ({ value: cs.coldStorageId, label: cs.csName })),
       },
       {
         key: "speciesIds", label: "Species", type: "multiselect", required: true,
-        options: fishSpecies.data.map((s) => ({ value: s.speciesId, label: s.speciesName })),
+        options: fishSpecies.data.filter((s) => s.isActive).map((s) => ({ value: s.speciesId, label: s.speciesName })),
       },
       { key: "blockCode",     label: "Kode Block",       type: "text",   required: true, placeholder: "BL-001" },
       { key: "blockName",     label: "Nama Block",       type: "text",   required: true, placeholder: "Block A" },
@@ -192,7 +192,7 @@ export default function StorageMasterDataPage() {
     formFields: [
       {
         key: "blockId", label: "Block", type: "select", required: true,
-        options: block.data.map((b) => ({ value: b.blockId, label: `${b.blockCode} — ${b.blockName}` })),
+        options: block.data.filter((b) => b.isActive).map((b) => ({ value: b.blockId, label: `${b.blockCode} — ${b.blockName}` })),
       },
       { key: "rackCode", label: "Kode Rack", type: "text", required: true, placeholder: "RK-001" },
     ],
@@ -242,7 +242,7 @@ export default function StorageMasterDataPage() {
     formFields: [
       {
         key: "rackId", label: "Rack", type: "select", required: true,
-        options: rack.data.map((r) => ({ value: r.rackId, label: r.rackCode })),
+        options: rack.data.filter((r) => r.isActive).map((r) => ({ value: r.rackId, label: r.rackCode })),
       },
       { key: "positionCode", label: "Kode Posisi", type: "text", required: true, placeholder: "P-001" },
       {

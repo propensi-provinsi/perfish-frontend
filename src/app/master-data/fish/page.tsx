@@ -200,19 +200,19 @@ export default function FishMasterDataPage() {
       { key: "skuCode", label: "Kode SKU", type: "text", required: true, placeholder: "SKU-001" },
       {
         key: "speciesId", label: "Species", type: "select", required: true,
-        options: species.data.map((s) => ({ value: s.speciesId, label: s.speciesName })),
+        options: species.data.filter((s) => s.isActive).map((s) => ({ value: s.speciesId, label: s.speciesName })),
       },
       {
         key: "formId", label: "Bentuk", type: "select", required: true,
-        options: form.data.map((f) => ({ value: f.formId, label: f.formName })),
+        options: form.data.filter((f) => f.isActive).map((f) => ({ value: f.formId, label: f.formName })),
       },
       {
         key: "gradeId", label: "Grade", type: "select", required: true,
-        options: grade.data.map((g) => ({ value: g.gradeId, label: g.gradeName })),
+        options: grade.data.filter((g) => g.isActive).map((g) => ({ value: g.gradeId, label: g.gradeName })),
       },
       {
         key: "packagingTypeId", label: "Packaging", type: "select", required: true,
-        options: packaging.data.map((p) => ({ value: p.packagingTypeId, label: p.packagingName })),
+        options: packaging.data.filter((p) => p.isActive).map((p) => ({ value: p.packagingTypeId, label: p.packagingName })),
       },
       { key: "minWeightKg",          label: "Min Berat (kg)",         type: "number", required: true, min: 0,    step: 0.01 },
       { key: "maxWeightKg",          label: "Max Berat (kg)",         type: "number", required: true, min: 0,    step: 0.01 },
