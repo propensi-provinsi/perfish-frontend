@@ -50,12 +50,20 @@ export default function EntityFormModal({
   /* reset form when modal opens / entity changes */
   useEffect(() => {
     if (isOpen) {
-      setValues(initialData ?? {});
+      const base = initialData ?? {};
+      // Initialize boolean fields to false when absent so display matches submission
+      const initialized: Record<string, unknown> = { ...base };
+      for (const f of fields) {
+        if (f.type === "boolean" && initialized[f.key] === undefined) {
+          initialized[f.key] = false;
+        }
+      }
+      setValues(initialized);
       setErrors({});
       setSubmitError(null);
       setIsSubmitting(false);
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, fields]);
 
   /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -172,7 +180,7 @@ export default function EntityFormModal({
       case "boolean":
         return (
           <select
-            value={String(val ?? "true")}
+            value={String(val ?? false)}
             onChange={(e) => setValue(f.key, e.target.value)}
             className={baseClass}
           >

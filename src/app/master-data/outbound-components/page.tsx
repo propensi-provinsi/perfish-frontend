@@ -210,7 +210,7 @@ export default function OutboundMasterDataPage() {
       { key: "isExport",    label: "Ekspor ke Luar Negeri?", type: "boolean" },
       {
         key: "outboundTypeId", label: "Tipe Outbound", type: "select", required: true,
-        options: outboundType.data.map((t) => ({
+        options: outboundType.data.filter((t) => t.isActive).map((t) => ({
           value: t.outboundTypeId,
           label: t.outboundTypeName,
         })),
@@ -219,7 +219,7 @@ export default function OutboundMasterDataPage() {
         key: "transportModeId", label: "Moda Transportasi (opsional)", type: "select",
         options: [
           { value: "", label: "— Tidak ada —" },
-          ...transportMode.data.map((m) => ({
+          ...transportMode.data.filter((m) => m.isActive).map((m) => ({
             value: m.transportModeId,
             label: m.modeName,
           })),
@@ -229,7 +229,7 @@ export default function OutboundMasterDataPage() {
         key: "originPortId", label: "Pelabuhan Asal (opsional)", type: "select",
         options: [
           { value: "", label: "— Tidak ada —" },
-          ...port.data.map((p) => ({
+          ...port.data.filter((p) => p.isActive).map((p) => ({
             value: p.portId,
             label: `${p.portCode} — ${p.portName}`,
           })),
@@ -237,7 +237,7 @@ export default function OutboundMasterDataPage() {
       },
       {
         key: "requiredDocumentIds", label: "Dokumen yang Diperlukan", type: "multiselect",
-        options: exportDocument.data.map((d) => ({
+        options: exportDocument.data.filter((d) => d.isActive).map((d) => ({
           value: d.documentId,
           label: d.documentName,
         })),
