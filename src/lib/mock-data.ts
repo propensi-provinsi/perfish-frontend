@@ -288,6 +288,134 @@ export const mockStoragePosition: MockStoragePosition[] = [
   { positionCode: "POS-SBY01-A-001-01", rackCode: "RCK-SBY01-A-001", status: "available" },
   { positionCode: "POS-SBY01-A-001-02", rackCode: "RCK-SBY01-A-001", status: "occupied" },
   { positionCode: "POS-SBY01-B-001-01", rackCode: "RCK-SBY01-B-001", status: "available" },
-  { positionCode: "POS-MKS01-A-001-01", rackCode: "RCK-MKS01-A-001", status: "occupied" },
-  { positionCode: "POS-MDN01-A-001-01", rackCode: "RCK-MDN01-A-001", status: "available" },
+];
+
+// ── Outbound Domain ──────────────────────────────────────────────
+
+export interface MockOutboundType {
+  outboundTypeCode: string;
+  outboundTypeName: string;
+  isActive: boolean;
+}
+
+export const mockOutboundType: MockOutboundType[] = [
+  { outboundTypeCode: "LOKAL",    outboundTypeName: "Distribusi Lokal",      isActive: true },
+  { outboundTypeCode: "EKSPOR",   outboundTypeName: "Ekspor Luar Negeri",    isActive: true },
+  { outboundTypeCode: "INTERNAL", outboundTypeName: "Transfer Antar Gudang", isActive: true },
+];
+
+export interface MockTransportMode {
+  modeCode: string;
+  modeName: string;
+  tempControlRequired: boolean;
+  isActive: boolean;
+}
+
+export const mockTransportMode: MockTransportMode[] = [
+  { modeCode: "SEA",    modeName: "Angkutan Laut",      tempControlRequired: false, isActive: true },
+  { modeCode: "AIR",    modeName: "Angkutan Udara",     tempControlRequired: false, isActive: true },
+  { modeCode: "ROAD",   modeName: "Angkutan Darat",     tempControlRequired: false, isActive: true },
+  { modeCode: "REFSEA", modeName: "Reefer Ship",         tempControlRequired: true,  isActive: true },
+  { modeCode: "REFAIR", modeName: "Cargo Berpendingin",  tempControlRequired: true,  isActive: true },
+];
+
+export interface MockPort {
+  portCode: string;
+  portName: string;
+  country: string;
+  isActive: boolean;
+}
+
+export const mockPort: MockPort[] = [
+  { portCode: "IDJKT", portName: "Pelabuhan Tanjung Priok", country: "Indonesia", isActive: true },
+  { portCode: "IDSBY", portName: "Pelabuhan Tanjung Perak", country: "Indonesia", isActive: true },
+  { portCode: "IDMAK", portName: "Pelabuhan Makassar",      country: "Indonesia", isActive: true },
+  { portCode: "IDBPN", portName: "Pelabuhan Balikpapan",    country: "Indonesia", isActive: true },
+  { portCode: "SGSIN", portName: "Port of Singapore",       country: "Singapore", isActive: true },
+  { portCode: "JPOSA", portName: "Port of Osaka",           country: "Japan",     isActive: true },
+];
+
+export interface MockExportDocument {
+  documentName: string;
+  requiresApproval: boolean;
+  isActive: boolean;
+}
+
+export const mockExportDocument: MockExportDocument[] = [
+  { documentName: "Certificate of Origin",     requiresApproval: true,  isActive: true },
+  { documentName: "Health Certificate",         requiresApproval: true,  isActive: true },
+  { documentName: "Phytosanitary Certificate", requiresApproval: true,  isActive: true },
+  { documentName: "Bill of Lading",             requiresApproval: false, isActive: true },
+  { documentName: "Packing List",               requiresApproval: false, isActive: true },
+  { documentName: "Commercial Invoice",         requiresApproval: false, isActive: true },
+  { documentName: "Export Declaration (PEB)",   requiresApproval: true,  isActive: true },
+];
+
+export interface MockOutboundChannel {
+  channelCode: string;
+  channelName: string;
+  isExport: boolean;
+  outboundTypeCode: string;
+  outboundTypeName: string;
+  modeCode: string | null;
+  modeName: string | null;
+  portCode: string | null;
+  portName: string | null;
+  requiredDocumentNames: string[];
+  isActive: boolean;
+}
+
+export const mockOutboundChannel: MockOutboundChannel[] = [
+  {
+    channelCode: "EKS-LAUT-JKT",
+    channelName: "Ekspor Laut via Jakarta",
+    isExport: true,
+    outboundTypeCode: "EKSPOR",
+    outboundTypeName: "Ekspor Luar Negeri",
+    modeCode: "SEA",
+    modeName: "Angkutan Laut",
+    portCode: "IDJKT",
+    portName: "Pelabuhan Tanjung Priok",
+    requiredDocumentNames: ["Certificate of Origin", "Health Certificate", "Bill of Lading"],
+    isActive: true,
+  },
+  {
+    channelCode: "EKS-UDARA-JKT",
+    channelName: "Ekspor Udara via Jakarta",
+    isExport: true,
+    outboundTypeCode: "EKSPOR",
+    outboundTypeName: "Ekspor Luar Negeri",
+    modeCode: "AIR",
+    modeName: "Angkutan Udara",
+    portCode: "IDJKT",
+    portName: "Pelabuhan Tanjung Priok",
+    requiredDocumentNames: ["Certificate of Origin", "Packing List"],
+    isActive: true,
+  },
+  {
+    channelCode: "LOKAL-DARAT",
+    channelName: "Distribusi Lokal Darat",
+    isExport: false,
+    outboundTypeCode: "LOKAL",
+    outboundTypeName: "Distribusi Lokal",
+    modeCode: "ROAD",
+    modeName: "Angkutan Darat",
+    portCode: null,
+    portName: null,
+    requiredDocumentNames: [],
+    isActive: true,
+  },
+  {
+    channelCode: "INTERNAL-JKT",
+    channelName: "Transfer Internal Jakarta",
+    isExport: false,
+    outboundTypeCode: "INTERNAL",
+    outboundTypeName: "Transfer Antar Gudang",
+    modeCode: null,
+    modeName: null,
+    portCode: null,
+    portName: null,
+    requiredDocumentNames: [],
+    isActive: true,
+  },
 ];
