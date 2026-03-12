@@ -9,7 +9,12 @@ import type {
   SupplierData,
   CreateSupplierPayload,
 } from "@/types";
-import { SUPPLIER_TYPES } from "@/types";
+import {
+  SUPPLIER_TYPES,
+  type FishSpeciesResponse,
+  type BranchResponse,
+  type ColdStorageResponse,
+} from "@/types";
 
 export default function InboundIkanPage() {
   return (
@@ -367,8 +372,102 @@ function AddPenerimaanModal({
   onClose: () => void;
 }) {
   const [supplierId, setSupplierId] = useState("");
+  const [speciesId, setSpeciesId] = useState<number | "">("");
+  const [branchId, setBranchId] = useState<number | "">("");
+  const [coldStorageId, setColdStorageId] = useState<number | "">("");
+  const [quantityKg, setQuantityKg] = useState<number | "">("");
+
+  const [speciesOptions, setSpeciesOptions] = useState<FishSpeciesResponse[]>(
+    []
+  );
+  const [branchOptions, setBranchOptions] = useState<BranchResponse[]>([]);
+  const [coldStorageOptions, setColdStorageOptions] = useState<
+    ColdStorageResponse[]
+  >([]);
+
+  const [loadingMasters, setLoadingMasters] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
   const noActiveSuppliers = activeSuppliers.length === 0;
+
+  useEffect(() => {
+    const fetchMasters = async () => {
+      setLoadingMasters(true);
+      setError(null);
+      try {
+        const [speciesRes, branchRes, coldRes] = await Promise.all([
+          apiClient.get<ApiResponse<FishSpeciesResponse[]>>(
+            "/v1/master/fish/species"
+          ),
+          apiClient.get<ApiResponse<BranchResponse[]>>(
+            "/v1/master/cold-storage/branches"
+          ),
+          apiClient.get<ApiResponse<ColdStorageResponse[]>>(
+            "/v1/master/cold-storage/storages"
+          ),
+        ]);
+
+        setSpeciesOptions(
+          speciesRes.data.data.filter((s) => s.isActive === true)
+        );
+        setBranchOptions(
+          branchRes.data.data.filter((b) => b.isActive === true)
+        );
+        setColdStorageOptions(
+          coldRes.data.data.filter((cs) => cs.isActive === true)
+        );
+      } catch {
+        setError("Gagal memuat master data ikan dan lokasi gudang");
+      } finally {
+        setLoadingMasters(false);
+      }
+    };
+
+    fetchMasters();
+  }, []);
+
+  const filteredColdStorages =
+    branchId === "" ? coldStorageOptions : coldStorageOptions.filter(
+      (cs) => cs.branchId === branchId
+    );
+
+  const canSubmit =
+    !noActiveSuppliers &&
+    !loadingMasters &&
+    supplierId &&
+    speciesId !== "" &&
+    branchId !== "" &&
+    coldStorageId !== "" &&
+    quantityKg !== "" &&
+    Number(quantityKg) > 0;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setSubmitting(true);
+    setError(null);
+    setSubmitSuccess(null);
+    try {
+      await apiClient.post<ApiResponse<unknown>>("/v1/inbound-fish", {
+        supplierId,
+        speciesId,
+        branchId,
+        coldStorageId,
+        quantityKg: Number(quantityKg),
+      });
+      setSubmitSuccess("Penerimaan ikan berhasil dicatat");
+      setTimeout(onClose, 900);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      const msg = axiosErr.response?.data?.message;
+      setError(msg || "Gagal mencatat penerimaan ikan");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -376,13 +475,25 @@ function AddPenerimaanModal({
         Catat Penerimaan Ikan Baru
       </h2>
 
+      {error && (
+        <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {submitSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">
+          {submitSuccess}
+        </div>
+      )}
+
       {noActiveSuppliers && (
         <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
           Tidak ada supplier aktif. Tambahkan supplier terlebih dahulu.
         </div>
       )}
 
-      <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+      <form className="space-y-4" onSubmit={handleSubmit}>
         <Field label="Supplier (hanya aktif)" required>
           <select
             value={supplierId}
@@ -402,28 +513,90 @@ function AddPenerimaanModal({
 
         <Field label="Jenis Ikan" required>
           <select
-            disabled
-            className="w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-400"
+            value={speciesId === "" ? "" : speciesId}
+            onChange={(e) =>
+              setSpeciesId(
+                e.target.value === "" ? "" : Number(e.target.value)
+              )
+            }
+            disabled={loadingMasters || speciesOptions.length === 0}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
           >
-            <option>Pilih Jenis Ikan</option>
+            <option value="">
+              {loadingMasters ? "Memuat jenis ikan…" : "Pilih Jenis Ikan"}
+            </option>
+            {speciesOptions.map((s) => (
+              <option key={s.speciesId} value={s.speciesId}>
+                {s.speciesCode} — {s.speciesName}
+              </option>
+            ))}
           </select>
         </Field>
 
         <Field label="Kuantitas (kg)" required>
           <input
             type="number"
-            disabled
+            min={0}
             placeholder="Masukkan kuantitas"
-            className="w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-400"
+            value={quantityKg}
+            onChange={(e) =>
+              setQuantityKg(
+                e.target.value === "" ? "" : Number(e.target.value)
+              )
+            }
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+        </Field>
+
+        <Field label="Cabang" required>
+          <select
+            value={branchId === "" ? "" : branchId}
+            onChange={(e) => {
+              const value = e.target.value;
+              setBranchId(value === "" ? "" : Number(value));
+              setColdStorageId("");
+            }}
+            disabled={loadingMasters || branchOptions.length === 0}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+          >
+            <option value="">
+              {loadingMasters ? "Memuat cabang…" : "Pilih Cabang"}
+            </option>
+            {branchOptions.map((b) => (
+              <option key={b.branchId} value={b.branchId}>
+                {b.branchCode} — {b.branchName}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Lokasi Gudang" required>
           <select
-            disabled
-            className="w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-400"
+            value={coldStorageId === "" ? "" : coldStorageId}
+            onChange={(e) =>
+              setColdStorageId(
+                e.target.value === "" ? "" : Number(e.target.value)
+              )
+            }
+            disabled={
+              loadingMasters ||
+              branchId === "" ||
+              filteredColdStorages.length === 0
+            }
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
           >
-            <option>Pilih Gudang</option>
+            <option value="">
+              {branchId === ""
+                ? "Pilih cabang terlebih dahulu"
+                : loadingMasters
+                  ? "Memuat lokasi gudang…"
+                  : "Pilih Gudang"}
+            </option>
+            {filteredColdStorages.map((cs) => (
+              <option key={cs.coldStorageId} value={cs.coldStorageId}>
+                {cs.csCode} — {cs.csName}
+              </option>
+            ))}
           </select>
         </Field>
 
@@ -437,16 +610,17 @@ function AddPenerimaanModal({
           </button>
           <button
             type="submit"
-            disabled
+            disabled={!canSubmit || submitting}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Submit Penerimaan
+            {submitting ? "Menyimpan…" : "Submit Penerimaan"}
           </button>
         </div>
       </form>
 
       <p className="mt-3 text-xs text-gray-400 text-center">
-        * Jenis Ikan, Kuantitas, dan Lokasi Gudang akan diimplementasi pada PBI berikutnya.
+        * Data penerimaan akan digunakan pada modul stok dan monitoring batch
+        pada PBI berikutnya.
       </p>
     </ModalOverlay>
   );
