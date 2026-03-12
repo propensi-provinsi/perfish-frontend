@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { HiOutlineBars3, HiOutlineBell, HiOutlineSun, HiOutlineMoon, HiOutlineXMark } from "react-icons/hi2";
 import { useAuth } from "@/context/AuthContext";
@@ -26,6 +26,13 @@ interface TopHeaderProps {
   onMenuClick: () => void;
 }
 
+interface ToastNotification {
+  notificationId: string;
+  title: string;
+  message: string;
+  expiryStatus: ExpiryStatus;
+}
+
 function statusClass(status: ExpiryStatus) {
   if (status === "EXPIRED") return "bg-red/10 text-red";
   if (status === "WARNING") return "bg-yellow/10 text-yellow";
@@ -42,21 +49,47 @@ export default function TopHeader({ onMenuClick }: TopHeaderProps) {
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<ExpiryNotificationListData | null>(null);
+  const [toastNotification, setToastNotification] = useState<ToastNotification | null>(null);
+  const hasLoadedNotifications = useRef(false);
+  const knownNotificationIds = useRef<Set<string>>(new Set());
 
   const initial = user?.name?.charAt(0)?.toUpperCase() ?? "U";
 
-  const loadNotifications = useCallback(async () => {
-    setDrawerLoading(true);
+  const loadNotifications = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setDrawerLoading(true);
+    }
     setNotificationError(null);
+
     try {
       const data = await getExpiryNotifications({ limit: 10 });
       setUnreadCount(data.unreadCount ?? 0);
       setNotifications(data);
+
+      const currentIds = new Set(data.items.map((item) => item.notificationId));
+      if (hasLoadedNotifications.current) {
+        const newestUnread = data.items.find(
+          (item) => !item.isRead && !knownNotificationIds.current.has(item.notificationId)
+        );
+        if (newestUnread) {
+          setToastNotification({
+            notificationId: newestUnread.notificationId,
+            title: newestUnread.title,
+            message: newestUnread.message,
+            expiryStatus: newestUnread.expiryStatus,
+          });
+        }
+      }
+
+      knownNotificationIds.current = currentIds;
+      hasLoadedNotifications.current = true;
     } catch {
       setUnreadCount(0);
       setNotificationError("Gagal memuat notifikasi expired.");
     } finally {
-      setDrawerLoading(false);
+      if (!options?.silent) {
+        setDrawerLoading(false);
+      }
     }
   }, []);
 
@@ -65,9 +98,51 @@ export default function TopHeader({ onMenuClick }: TopHeaderProps) {
   }, [loadNotifications]);
 
   useEffect(() => {
+    void loadNotifications({ silent: true });
+  }, [pathname, loadNotifications]);
+
+  useEffect(() => {
     if (!drawerOpen) return;
     void loadNotifications();
   }, [drawerOpen, loadNotifications]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void loadNotifications({ silent: true });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      void loadNotifications({ silent: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadNotifications({ silent: true });
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    if (!toastNotification) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setToastNotification(null);
+    }, 4500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toastNotification]);
 
   const handleMarkRead = useCallback(async (notificationId: string) => {
     try {
@@ -149,6 +224,27 @@ export default function TopHeader({ onMenuClick }: TopHeaderProps) {
 
       {drawerOpen && (
         <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setDrawerOpen(false)} />
+      )}
+
+      {toastNotification && (
+        <div className="fixed right-4 top-20 z-[60] w-[calc(100%-2rem)] max-w-sm rounded-xl border border-cyan/30 bg-white p-4 shadow-xl dark:border-cyan/40 dark:bg-dark-card">
+          <div className="mb-1 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{toastNotification.title}</p>
+              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(toastNotification.expiryStatus)}`}>
+                {toastNotification.expiryStatus}
+              </span>
+            </div>
+            <button
+              onClick={() => setToastNotification(null)}
+              className="rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-gray-200"
+              aria-label="Tutup notifikasi"
+            >
+              <HiOutlineXMark className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300">{toastNotification.message}</p>
+        </div>
       )}
 
       <aside

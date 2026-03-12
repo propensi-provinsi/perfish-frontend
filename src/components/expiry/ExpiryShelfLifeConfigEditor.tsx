@@ -5,17 +5,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/ui/Button";
 import {
   getFishSpecies,
+  getShelfLifeConfigs,
   upsertShelfLifeConfigs,
 } from "@/lib/expiry";
 import type { FishSpeciesData } from "@/types";
 
 type ConfigGroup = {
   id: string;
-  shelfLifeMonths: number;
-  warningThresholdMonths: number;
+  shelfLifeMonths: string;
+  warningThresholdMonths: string;
   speciesIds: number[];
   isActive: boolean;
 };
+
+function isPositiveInteger(value: string) {
+  return /^[1-9]\d*$/.test(value.trim());
+}
+
+function countExistingGroups(configs: { defaultShelfLifeDays: number; warningThresholdDays: number; isActive: boolean }[]) {
+  const keys = new Set<string>();
+  for (const item of configs) {
+    const shelfLifeMonths = Math.max(1, Math.round(item.defaultShelfLifeDays / 30));
+    const warningThresholdMonths = Math.max(1, Math.round(item.warningThresholdDays / 30));
+    keys.add(`${shelfLifeMonths}-${warningThresholdMonths}-${item.isActive}`);
+  }
+  return keys.size;
+}
 
 export default function ExpiryShelfLifeConfigEditor() {
   const router = useRouter();
@@ -26,6 +41,7 @@ export default function ExpiryShelfLifeConfigEditor() {
 
   const [species, setSpecies] = useState<FishSpeciesData[]>([]);
   const [groups, setGroups] = useState<ConfigGroup[]>([]);
+  const [groupNumberOffset, setGroupNumberOffset] = useState(1);
 
   const isEditMode = searchParams.get("mode") === "edit";
 
@@ -33,28 +49,37 @@ export default function ExpiryShelfLifeConfigEditor() {
     setLoading(true);
     setError(null);
     try {
-      const speciesData = await getFishSpecies();
+      const [speciesData, existingConfigs] = await Promise.all([
+        getFishSpecies(),
+        getShelfLifeConfigs(),
+      ]);
 
       const speciesIds = (searchParams.get("speciesIds") ?? "")
         .split(",")
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isFinite(value) && value > 0);
 
-      const shelfLifeMonths = Number(searchParams.get("shelfLifeMonths") ?? "12");
-      const warningThresholdMonths = Number(
-        searchParams.get("warningThresholdMonths") ?? String(Math.max(1, Math.floor(shelfLifeMonths / 2)))
-      );
+      const shelfLifeMonthsParam = searchParams.get("shelfLifeMonths");
+      const warningThresholdMonthsParam = searchParams.get("warningThresholdMonths");
       const isActive = searchParams.get("isActive") !== "false";
 
+      const shelfLifeMonths =
+        isEditMode && shelfLifeMonthsParam && isPositiveInteger(shelfLifeMonthsParam)
+          ? shelfLifeMonthsParam
+          : "";
+
+      const warningThresholdMonths =
+        isEditMode && warningThresholdMonthsParam && isPositiveInteger(warningThresholdMonthsParam)
+          ? warningThresholdMonthsParam
+          : "";
+
       setSpecies(speciesData);
+      setGroupNumberOffset(isEditMode ? 1 : countExistingGroups(existingConfigs) + 1);
       setGroups([
         {
           id: isEditMode ? `edit-${speciesIds.join("-") || "group"}` : `new-${Date.now()}`,
-          shelfLifeMonths: Number.isFinite(shelfLifeMonths) && shelfLifeMonths > 0 ? shelfLifeMonths : 12,
-          warningThresholdMonths:
-            Number.isFinite(warningThresholdMonths) && warningThresholdMonths > 0
-              ? warningThresholdMonths
-              : Math.max(1, Math.floor((Number.isFinite(shelfLifeMonths) && shelfLifeMonths > 0 ? shelfLifeMonths : 12) / 2)),
+          shelfLifeMonths,
+          warningThresholdMonths,
           speciesIds,
           isActive,
         },
@@ -76,8 +101,8 @@ export default function ExpiryShelfLifeConfigEditor() {
       ...prev,
       {
         id: `new-${Date.now()}`,
-        shelfLifeMonths: 12,
-        warningThresholdMonths: 6,
+        shelfLifeMonths: "",
+        warningThresholdMonths: "",
         speciesIds: [],
         isActive: true,
       },
@@ -104,18 +129,41 @@ export default function ExpiryShelfLifeConfigEditor() {
   }
 
   async function handleSaveConfig() {
-    const payloadGroups = groups
-      .map((g) => ({
-        speciesIds: Array.from(new Set(g.speciesIds)).sort((a, b) => a - b),
-        defaultShelfLifeDays: Number(g.shelfLifeMonths) * 30,
-        warningThresholdDays: Number(g.warningThresholdMonths) * 30,
-        isActive: g.isActive,
-      }))
-      .filter((g) => g.speciesIds.length > 0);
+    const payloadGroups = [];
 
-    if (payloadGroups.length === 0) {
-      setError("Minimal satu group konfigurasi dengan species terpilih diperlukan.");
-      return;
+    for (let i = 0; i < groups.length; i += 1) {
+      const group = groups[i];
+      const label = `Group ${groupNumberOffset + i}`;
+      const speciesIds = Array.from(new Set(group.speciesIds)).sort((a, b) => a - b);
+
+      if (!group.shelfLifeMonths.trim() || !group.warningThresholdMonths.trim()) {
+        setError(`${label}: Shelf life dan warning threshold wajib diisi.`);
+        return;
+      }
+
+      if (!isPositiveInteger(group.shelfLifeMonths) || !isPositiveInteger(group.warningThresholdMonths)) {
+        setError(`${label}: Shelf life dan warning threshold harus angka bulat positif.`);
+        return;
+      }
+
+      const shelfLifeValue = Number(group.shelfLifeMonths);
+      const warningValue = Number(group.warningThresholdMonths);
+      if (warningValue >= shelfLifeValue) {
+        setError(`${label}: Warning threshold harus lebih kecil dari shelf life.`);
+        return;
+      }
+
+      if (speciesIds.length === 0) {
+        setError(`${label}: Minimal pilih satu species.`);
+        return;
+      }
+
+      payloadGroups.push({
+        speciesIds,
+        defaultShelfLifeDays: shelfLifeValue * 30,
+        warningThresholdDays: warningValue * 30,
+        isActive: group.isActive,
+      });
     }
 
     setSavingConfig(true);
@@ -138,7 +186,7 @@ export default function ExpiryShelfLifeConfigEditor() {
           {isEditMode ? "Edit Konfigurasi Group Shelf Life" : "Tambah Konfigurasi Group Shelf Life"}
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Shelf life diatur dalam bulan. Warning threshold dihitung otomatis sebesar setengah dari shelf life.
+          Shelf life dan warning threshold diisi manual dalam bulan. Semua field wajib terisi sebelum disimpan.
         </p>
       </div>
 
@@ -161,7 +209,7 @@ export default function ExpiryShelfLifeConfigEditor() {
             {groups.map((group, index) => (
               <div key={group.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Group {index + 1}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Group {groupNumberOffset + index}</p>
                   <label className="flex items-center gap-2 text-xs text-gray-500">
                     <input
                       type="checkbox"
@@ -178,23 +226,44 @@ export default function ExpiryShelfLifeConfigEditor() {
                     <input
                       type="number"
                       min={1}
+                      step={1}
                       value={group.shelfLifeMonths}
-                      onChange={(e) => updateGroup(group.id, { shelfLifeMonths: Number(e.target.value) || 1 })}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+                      onChange={(e) => updateGroup(group.id, { shelfLifeMonths: e.target.value })}
+                      className={`w-full rounded-lg border bg-white px-3 py-2 text-sm dark:bg-dark-section ${
+                        group.shelfLifeMonths !== "" && !isPositiveInteger(group.shelfLifeMonths)
+                          ? "border-red-300"
+                          : "border-gray-300 dark:border-gray-600"
+                      }`}
                     />
+                    {group.shelfLifeMonths !== "" && !isPositiveInteger(group.shelfLifeMonths) && (
+                      <p className="mt-1 text-xs text-red-600">Harus angka bulat positif.</p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-500">Warning Threshold (bulan)</label>
                     <input
                       type="number"
                       min={1}
+                      step={1}
                       value={group.warningThresholdMonths}
-                      onChange={(e) => updateGroup(group.id, { warningThresholdMonths: Number(e.target.value) || 1 })}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+                      onChange={(e) => updateGroup(group.id, { warningThresholdMonths: e.target.value })}
+                      className={`w-full rounded-lg border bg-white px-3 py-2 text-sm dark:bg-dark-section ${
+                        (group.warningThresholdMonths !== "" && !isPositiveInteger(group.warningThresholdMonths)) ||
+                        (isPositiveInteger(group.warningThresholdMonths) &&
+                          isPositiveInteger(group.shelfLifeMonths) &&
+                          Number(group.warningThresholdMonths) >= Number(group.shelfLifeMonths))
+                          ? "border-red-300"
+                          : "border-gray-300 dark:border-gray-600"
+                      }`}
                     />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Default disarankan: {Math.max(1, Math.floor(group.shelfLifeMonths / 2))} bulan.
-                    </p>
+                    {group.warningThresholdMonths !== "" && !isPositiveInteger(group.warningThresholdMonths) && (
+                      <p className="mt-1 text-xs text-red-600">Harus angka bulat positif.</p>
+                    )}
+                    {isPositiveInteger(group.warningThresholdMonths) &&
+                      isPositiveInteger(group.shelfLifeMonths) &&
+                      Number(group.warningThresholdMonths) >= Number(group.shelfLifeMonths) && (
+                        <p className="mt-1 text-xs text-red-600">Harus lebih kecil dari shelf life.</p>
+                      )}
                   </div>
                 </div>
 
@@ -225,7 +294,7 @@ export default function ExpiryShelfLifeConfigEditor() {
 
         <div className="mt-4 flex gap-2">
           <Button onClick={handleSaveConfig} disabled={savingConfig || loading}>
-            {savingConfig ? "Menyimpan..." : "Save"}
+            {savingConfig ? "Menyimpan..." : "Simpan"}
           </Button>
           <Button variant="outline" onClick={() => router.push("/expired-alert/config")}>
             Batal

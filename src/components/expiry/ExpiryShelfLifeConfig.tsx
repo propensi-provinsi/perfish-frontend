@@ -55,6 +55,7 @@ function toGroupConfigs(configs: ShelfLifeConfigData[]): ConfigGroup[] {
 export default function ExpiryShelfLifeConfig() {
   const [loading, setLoading] = useState(true);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<ConfigGroup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [groups, setGroups] = useState<ConfigGroup[]>([]);
 
@@ -88,6 +89,13 @@ export default function ExpiryShelfLifeConfig() {
     } finally {
       setDeletingGroupId(null);
     }
+  }
+
+  async function handleConfirmDelete() {
+    if (!confirmDeleteGroup) return;
+
+    await handleDeleteGroup(confirmDeleteGroup);
+    setConfirmDeleteGroup(null);
   }
 
   return (
@@ -133,7 +141,7 @@ export default function ExpiryShelfLifeConfig() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void handleDeleteGroup(group)}
+                      onClick={() => setConfirmDeleteGroup(group)}
                       disabled={deletingGroupId === group.id}
                     >
                       {deletingGroupId === group.id ? "Menghapus..." : "Hapus"}
@@ -172,6 +180,38 @@ export default function ExpiryShelfLifeConfig() {
           <p className="text-sm text-gray-500">Belum ada konfigurasi shelf life.</p>
         )}
       </section>
+
+      {confirmDeleteGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-dark-card">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Konfirmasi Hapus Group</h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              Apakah Anda yakin ingin menghapus konfigurasi untuk species berikut?
+            </p>
+            <p className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+              {confirmDeleteGroup.speciesNames.join(", ")}
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmDeleteGroup(null)}
+                disabled={deletingGroupId === confirmDeleteGroup.id}
+              >
+                Batal
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleConfirmDelete()}
+                disabled={deletingGroupId === confirmDeleteGroup.id}
+              >
+                {deletingGroupId === confirmDeleteGroup.id ? "Menghapus..." : "Ya, Hapus"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
