@@ -126,19 +126,31 @@ export default function MasterDataShell({ title, subtitle, entities }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function openEdit(row: Record<string, any>) {
     const formData = entity.getFormData ? entity.getFormData(row) : { ...row };
+    // Always preserve the id field — getFormData may omit it, causing NaN in PUT URL
+    if (entity.idField && row[entity.idField] !== undefined) {
+      (formData as Record<string, unknown>)[entity.idField] = row[entity.idField];
+    }
     setEditRow(formData as Record<string, unknown>);
     setShowForm(true);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function handleSubmit(data: Record<string, any>) {
-    if (editRow !== null && entity.onUpdate && entity.idField) {
-      const rowId = editRow[entity.idField];
-      await entity.onUpdate(rowId, data);
-      showNotif("success", "Data berhasil diperbarui");
-    } else if (entity.onCreate) {
-      await entity.onCreate(data);
-      showNotif("success", "Data berhasil ditambahkan");
+    try {
+      if (editRow !== null && entity.onUpdate && entity.idField) {
+        const rowId = editRow[entity.idField];
+        await entity.onUpdate(rowId, data);
+        showNotif("success", "Data berhasil diperbarui");
+      } else if (entity.onCreate) {
+        await entity.onCreate(data);
+        showNotif("success", "Data berhasil ditambahkan");
+      }
+    } catch (err: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const msg = (err as any)?.response?.data?.message
+        ?? (err instanceof Error ? err.message : "Gagal menyimpan data");
+      showNotif("error", msg);
+      throw err; // re-throw so EntityFormModal also shows it inline
     }
   }
 
