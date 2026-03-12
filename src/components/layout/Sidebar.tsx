@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -23,18 +23,24 @@ export default function Sidebar({
   const pathname = usePathname();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
+  const matchesPath = useCallback((href?: string) => {
+    if (!href) return false;
+    if (href === "/home") return pathname === "/home";
+    return pathname === href || pathname.startsWith(href + "/");
+  }, [pathname]);
+
   // Auto-expand parent whose child matches the current path
   useEffect(() => {
     mainMenu.forEach((item) => {
       if (
-        item.children?.some((child) => child.href && pathname.startsWith(child.href))
+        item.children?.some((child) => matchesPath(child.href))
       ) {
         setExpandedKeys((prev) =>
           prev.includes(item.key) ? prev : [...prev, item.key]
         );
       }
     });
-  }, [pathname]);
+  }, [matchesPath]);
 
   function toggleExpand(key: string) {
     setExpandedKeys((prev) =>
@@ -43,21 +49,30 @@ export default function Sidebar({
   }
 
   function isActive(href?: string) {
-    if (!href) return false;
-    if (href === "/home") return pathname === "/home";
-    return pathname === href || pathname.startsWith(href + "/");
+    return matchesPath(href);
+  }
+
+  function getActiveChildKey(item: MenuItem) {
+    if (!item.children?.length) return null;
+
+    const matched = item.children
+      .filter((child) => matchesPath(child.href))
+      .sort((a, b) => (b.href?.length ?? 0) - (a.href?.length ?? 0));
+
+    return matched[0]?.key ?? null;
   }
 
   function isParentActive(item: MenuItem) {
     if (item.href) return isActive(item.href);
-    return item.children?.some((c) => isActive(c.href)) ?? false;
+    return getActiveChildKey(item) !== null;
   }
 
   /* ── single menu item renderer ──────────────────────── */
-  function renderItem(item: MenuItem, isBottom = false) {
+  function renderItem(item: MenuItem) {
     const hasChildren = item.children && item.children.length > 0;
     const active = isParentActive(item);
     const expanded = expandedKeys.includes(item.key);
+    const activeChildKey = getActiveChildKey(item);
     const Icon = item.icon;
 
     // Leaf link (no children)
@@ -122,7 +137,7 @@ export default function Sidebar({
         {expanded && (!collapsed || open) && (
           <ul className="mt-1 ml-4 space-y-0.5 border-l border-white/10 pl-3">
             {item.children!.map((child) => {
-              const childActive = isActive(child.href);
+              const childActive = activeChildKey === child.key;
               return (
                 <li key={child.key}>
                   <Link
@@ -185,7 +200,7 @@ export default function Sidebar({
 
         {/* ── Bottom (Pengaturan) ──────────────────────── */}
         <div className="border-t border-white/10 px-3 py-3">
-          <ul>{renderItem(bottomMenu, true)}</ul>
+          <ul>{renderItem(bottomMenu)}</ul>
         </div>
 
         {/* ── Collapse toggle (desktop only) ──────────── */}

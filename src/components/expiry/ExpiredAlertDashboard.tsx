@@ -48,6 +48,13 @@ export default function ExpiredAlertDashboard() {
   const [keyword, setKeyword] = useState("");
   const isSuperadmin = user?.role === "SUPERADMIN";
 
+  function clearFilters() {
+    setStatus("");
+    setSpeciesId("");
+    setColdStorageId("");
+    setKeyword("");
+  }
+
   const filters = useMemo<ExpiryStatusQuery>(
     () => ({
       status: status || undefined,
@@ -146,7 +153,7 @@ export default function ExpiredAlertDashboard() {
     <>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-navy dark:text-white">Expired Alert & Notification Dashboard</h1>
+          <h1 className="text-2xl font-bold text-navy dark:text-white">Expired Alert & Notification Monitor</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Ringkasan stok fresh dan warning serta daftar batch expiry berdasarkan filter operasional.
           </p>
@@ -167,10 +174,15 @@ export default function ExpiredAlertDashboard() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filter Dashboard</h2>
-            <Button size="sm" variant="outline" onClick={() => loadPageData()} disabled={loading}>
-              Refresh
-            </Button>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filter Monitor</h2>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={clearFilters} disabled={loading}>
+                Hapus Semua Filter
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => loadPageData()} disabled={loading}>
+                Refresh
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-4">
