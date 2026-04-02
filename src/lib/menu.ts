@@ -71,14 +71,10 @@ export const mainMenu: MenuItem[] = [
   },
   {
     key: "purchasing",
-    label: "Inbound Ikan",
+    label: "Pembelian Ikan",
     icon: LuFish,
     children: [
-      {
-        key: "purchasing-inbound",
-        label: "Inbound Ikan",
-        href: "/inbound-ikan",
-      },
+      { key: "purchasing-inbound", label: "Inbound Ikan", href: "/inbound-ikan" },
     ],
   },
   {
@@ -125,3 +121,35 @@ export const bottomMenu: MenuItem = {
   icon: HiOutlineCog6Tooth,
   href: "/settings",
 };
+
+/** Master Data dengan hanya Supplier */
+const masterDataSupplierOnly: MenuItem = {
+  key: "master-data",
+  label: "Master Data",
+  icon: HiOutlineClipboardDocumentList,
+  children: [
+    { key: "md-supplier", label: "Supplier", href: "/master-data/suppliers" },
+  ],
+};
+
+/** Menu untuk Kepala Cabang: Home, Dashboard, Master Data Supplier, Laporan, Pengaturan */
+export function getMainMenuForRole(role: string | undefined): MenuItem[] {
+  if (role === "KEPALA_CABANG") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      masterDataSupplierOnly,
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  if (role === "SBB_STAFF") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      masterDataSupplierOnly,
+      { key: "purchasing", label: "Pembelian Ikan", icon: LuFish, children: [{ key: "purchasing-inbound", label: "Inbound Ikan", href: "/inbound-ikan" }] },
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  return mainMenu;
+}
