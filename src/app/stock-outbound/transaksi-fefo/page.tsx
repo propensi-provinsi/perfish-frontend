@@ -1,0 +1,790 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
+import { stockOutboundApi } from "@/lib/stock-outbound-api";
+import type {
+  AllocationSummary,
+  FefoBatchStock,
+  SalesOrderOutboundSummary,
+  Shipment,
+  ShipmentStatus,
+  TransportModeOption,
+} from "@/types/stock-outbound";
+import { formatDate, formatDateTime, formatKg, isOpenSalesOrderStatus } from "../components/formatters";
+
+type TabKey = "proses" | "shipment";
+
+type ScanItem = {
+  id: string;
+  allocationId: number;
+  batchNumber: string;
+  qrCode: string;
+  weightKg: number;
+  scannedAt: string;
+};
+
+function nextShipmentStatus(current: ShipmentStatus): ShipmentStatus | null {
+  if (current === "PICKING") return "CHECKING";
+  if (current === "CHECKING") return "LOADING";
+  if (current === "LOADING") return "DISPATCHED";
+  if (current === "DISPATCHED") return "DELIVERED";
+  return null;
+}
+
+function dateAsNumber(value: string | null | undefined) {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+export default function TransaksiFefoPage() {
+  const [tab, setTab] = useState<TabKey>("proses");
+  const [salesOrders, setSalesOrders] = useState<SalesOrderOutboundSummary[]>([]);
+  const [fefoBatches, setFefoBatches] = useState<FefoBatchStock[]>([]);
+  const [transportModes, setTransportModes] = useState<TransportModeOption[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+
+  const [selectedSoId, setSelectedSoId] = useState<number | null>(null);
+  const [allocationSummary, setAllocationSummary] = useState<AllocationSummary | null>(null);
+  const [selectedAllocationId, setSelectedAllocationId] = useState<string>("");
+  const [selectedShipmentId, setSelectedShipmentId] = useState<number | null>(null);
+
+  const [loadingMaster, setLoadingMaster] = useState(true);
+  const [runningFefo, setRunningFefo] = useState(false);
+  const [creatingShipment, setCreatingShipment] = useState(false);
+  const [updatingShipmentId, setUpdatingShipmentId] = useState<number | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const [qrInput, setQrInput] = useState("");
+  const [weightInput, setWeightInput] = useState("");
+  const [scanItems, setScanItems] = useState<ScanItem[]>([]);
+
+  const [shipmentForm, setShipmentForm] = useState({
+    destination: "",
+    vehicleNumber: "",
+    driverName: "",
+    transportModeId: "",
+  });
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const clearAlert = useCallback(() => {
+    setTimeout(() => {
+      setSuccess(null);
+      setError(null);
+    }, 3000);
+  }, []);
+
+  const fetchMasterData = useCallback(async () => {
+    setLoadingMaster(true);
+    setError(null);
+
+    try {
+      const [soRes, batchRes, modeRes, shipmentRes] = await Promise.all([
+        stockOutboundApi.getSalesOrders(),
+        stockOutboundApi.getFefoBatches(),
+        stockOutboundApi.getTransportModes(),
+        stockOutboundApi.getShipments(),
+      ]);
+
+      const soData = soRes.data.data ?? [];
+      const shipmentData = shipmentRes.data.data ?? [];
+
+      setSalesOrders(soData);
+      setFefoBatches(batchRes.data.data ?? []);
+      setTransportModes(modeRes.data.data ?? []);
+      setShipments(shipmentData);
+
+      const openSo = soData.find((item) => isOpenSalesOrderStatus(item.salesOrderStatus));
+      setSelectedSoId((prev) => prev ?? openSo?.soId ?? null);
+      setSelectedShipmentId((prev) => prev ?? shipmentData[0]?.shipmentId ?? null);
+    } catch {
+      setError("Gagal memuat data transaksi outbound.");
+      clearAlert();
+    } finally {
+      setLoadingMaster(false);
+    }
+  }, [clearAlert]);
+
+  const fetchAllocation = useCallback(async (soId: number) => {
+    try {
+      const response = await stockOutboundApi.getAllocationSummary(soId);
+      const summary = response.data.data;
+      setAllocationSummary(summary);
+      if (summary?.allocations?.length) {
+        setSelectedAllocationId(String(summary.allocations[0].allocationId));
+      } else {
+        setSelectedAllocationId("");
+      }
+    } catch {
+      setAllocationSummary(null);
+      setSelectedAllocationId("");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMasterData();
+  }, [fetchMasterData]);
+
+  useEffect(() => {
+    if (selectedSoId) {
+      fetchAllocation(selectedSoId);
+    } else {
+      setAllocationSummary(null);
+      setSelectedAllocationId("");
+    }
+  }, [selectedSoId, fetchAllocation]);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Browser tidak mendukung akses kamera.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setCameraOpen(true);
+    } catch {
+      setCameraError("Izin kamera ditolak atau kamera tidak tersedia.");
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  const openSalesOrders = useMemo(
+    () => salesOrders.filter((item) => isOpenSalesOrderStatus(item.salesOrderStatus)),
+    [salesOrders]
+  );
+
+  const sortedFefoBatches = useMemo(() => {
+    return [...fefoBatches]
+      .filter((item) => item.currentQuantity > 0)
+      .sort((left, right) => {
+        const byExpiry = dateAsNumber(left.expirationDate) - dateAsNumber(right.expirationDate);
+        if (byExpiry !== 0) return byExpiry;
+        return dateAsNumber(left.productionDate) - dateAsNumber(right.productionDate);
+      });
+  }, [fefoBatches]);
+
+  const selectedSo = openSalesOrders.find((item) => item.soId === selectedSoId) ?? null;
+
+  useEffect(() => {
+    if (!selectedSo) return;
+    setShipmentForm((prev) => ({
+      ...prev,
+      destination: prev.destination || selectedSo.customerName,
+    }));
+  }, [selectedSo]);
+
+  const selectedShipment = shipments.find((item) => item.shipmentId === selectedShipmentId) ?? null;
+
+  const scanTotal = scanItems.reduce((acc, item) => acc + item.weightKg, 0);
+  const requiredKg = allocationSummary?.totalRequiredKg ?? 0;
+
+  const handleRunAutoFefo = async () => {
+    if (!selectedSoId) {
+      setError("Pilih Sales Order terlebih dahulu.");
+      clearAlert();
+      return;
+    }
+
+    setRunningFefo(true);
+    setError(null);
+    try {
+      const response = await stockOutboundApi.allocateStock(selectedSoId, { autoAllocate: true });
+      setAllocationSummary(response.data.data ?? null);
+      if (response.data.data?.allocations?.length) {
+        setSelectedAllocationId(String(response.data.data.allocations[0].allocationId));
+      }
+      setSuccess("Auto FEFO berhasil dijalankan.");
+      clearAlert();
+      await fetchMasterData();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal menjalankan auto FEFO.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setRunningFefo(false);
+    }
+  };
+
+  const handleAddScan = () => {
+    const allocationIdNumber = Number(selectedAllocationId);
+    const weight = Number(weightInput);
+
+    if (!allocationIdNumber) {
+      setError("Pilih alokasi batch terlebih dahulu.");
+      clearAlert();
+      return;
+    }
+
+    if (!qrInput.trim()) {
+      setError("QR code wajib diisi.");
+      clearAlert();
+      return;
+    }
+
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setError("Berat scan harus lebih dari 0.");
+      clearAlert();
+      return;
+    }
+
+    const allocation = allocationSummary?.allocations.find((item) => item.allocationId === allocationIdNumber);
+    if (!allocation) {
+      setError("Alokasi tidak ditemukan.");
+      clearAlert();
+      return;
+    }
+
+    const item: ScanItem = {
+      id: `${Date.now()}-${Math.random()}`,
+      allocationId: allocationIdNumber,
+      batchNumber: allocation.batchNumber,
+      qrCode: qrInput.trim(),
+      weightKg: weight,
+      scannedAt: new Date().toISOString(),
+    };
+
+    setScanItems((prev) => [item, ...prev]);
+    setQrInput("");
+    setWeightInput("");
+    setSuccess("Scan tercatat pada transaksi FEFO.");
+    clearAlert();
+  };
+
+  const handleCreateDeliveryOrder = async () => {
+    if (!selectedSoId) {
+      setError("Pilih Sales Order terlebih dahulu.");
+      clearAlert();
+      return;
+    }
+
+    setCreatingShipment(true);
+    setError(null);
+
+    try {
+      const payload = {
+        salesOrderId: selectedSoId,
+        destination: shipmentForm.destination || undefined,
+        vehicleNumber: shipmentForm.vehicleNumber || undefined,
+        outboundChannelId: shipmentForm.transportModeId ? Number(shipmentForm.transportModeId) : undefined,
+        remarks: [
+          shipmentForm.driverName ? `Driver: ${shipmentForm.driverName}` : "",
+          scanItems.length ? `Scanned: ${scanItems.length} pallet entry` : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      };
+
+      const response = await stockOutboundApi.createShipment(payload);
+      const newShipment = response.data.data;
+
+      setSuccess(`Delivery order ${newShipment?.shipmentNumber ?? "baru"} berhasil dibuat.`);
+      clearAlert();
+      setScanItems([]);
+      setSelectedShipmentId(newShipment?.shipmentId ?? null);
+      setTab("shipment");
+      await fetchMasterData();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal membuat delivery order.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setCreatingShipment(false);
+    }
+  };
+
+  const handleAdvanceShipment = async (shipment: Shipment) => {
+    const next = nextShipmentStatus(shipment.status);
+    if (!next) return;
+
+    setUpdatingShipmentId(shipment.shipmentId);
+    try {
+      await stockOutboundApi.updateShipmentStatus(shipment.shipmentId, {
+        status: next,
+        note: "Update status dari modul transaksi FEFO",
+      });
+      setSuccess(`Status shipment ${shipment.shipmentNumber} menjadi ${next}.`);
+      clearAlert();
+      await fetchMasterData();
+      setSelectedShipmentId(shipment.shipmentId);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal memperbarui status shipment.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setUpdatingShipmentId(null);
+    }
+  };
+
+  return (
+    <StockOutboundModuleShell
+      title="Transaksi FEFO"
+      description="Alur operasional mobile: pilih SO OPEN, jalankan FEFO, scan QR pallet, lalu lanjutkan progres shipment hingga delivered."
+    >
+      <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-3">
+        <div className="grid grid-cols-2 gap-2 md:w-[380px]">
+          <button
+            type="button"
+            onClick={() => setTab("proses")}
+            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+              tab === "proses"
+                ? "bg-cyan text-white"
+                : "bg-gray-100 text-gray-700 dark:bg-dark-section dark:text-gray-200"
+            }`}
+          >
+            Proses FEFO
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("shipment")}
+            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+              tab === "shipment"
+                ? "bg-cyan text-white"
+                : "bg-gray-100 text-gray-700 dark:bg-dark-section dark:text-gray-200"
+            }`}
+          >
+            Shipment
+          </button>
+        </div>
+      </section>
+
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      ) : null}
+
+      {success ? (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
+          {success}
+        </div>
+      ) : null}
+
+      {tab === "proses" ? (
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <article className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
+            <h2 className="text-base font-semibold text-navy dark:text-white">1. Pilih Sales Order OPEN</h2>
+            <select
+              value={selectedSoId ?? ""}
+              onChange={(event) => setSelectedSoId(event.target.value ? Number(event.target.value) : null)}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Pilih Sales Order</option>
+              {openSalesOrders.map((item) => (
+                <option key={item.soId} value={item.soId}>
+                  {item.soNumber} - {item.customerName}
+                </option>
+              ))}
+            </select>
+
+            <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-sm">
+              <p>
+                Customer: <span className="font-semibold">{selectedSo?.customerName ?? "-"}</span>
+              </p>
+              <p>
+                Required: <span className="font-semibold">{formatKg(selectedSo?.totalRequiredKg)} Kg</span>
+              </p>
+              <p>
+                Remaining: <span className="font-semibold">{formatKg(selectedSo?.remainingKg)} Kg</span>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRunAutoFefo}
+              disabled={!selectedSoId || runningFefo || loadingMaster}
+              className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {runningFefo ? "Memproses FEFO..." : "Jalankan Auto FEFO"}
+            </button>
+
+            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-dark-section text-left">
+                  <tr>
+                    <th className="px-3 py-2">Batch</th>
+                    <th className="px-3 py-2">Ikan</th>
+                    <th className="px-3 py-2">Expiry</th>
+                    <th className="px-3 py-2 text-right">Allocated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingMaster ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                        Loading data...
+                      </td>
+                    </tr>
+                  ) : allocationSummary?.allocations?.length ? (
+                    allocationSummary.allocations.map((item) => (
+                      <tr key={item.allocationId} className="border-t border-gray-100 dark:border-gray-800">
+                        <td className="px-3 py-2 font-medium">{item.batchNumber}</td>
+                        <td className="px-3 py-2">{item.fishSpeciesName ?? "-"}</td>
+                        <td className="px-3 py-2">{formatDate(item.expirationDate)}</td>
+                        <td className="px-3 py-2 text-right">{formatKg(item.allocatedQuantity)} Kg</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                        No data available.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
+            <h2 className="text-base font-semibold text-navy dark:text-white">2. Scan QR Pallet</h2>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={cameraOpen ? stopCamera : startCamera}
+                className="rounded-lg border border-cyan px-3 py-2 text-sm font-semibold text-cyan"
+              >
+                {cameraOpen ? "Matikan Kamera" : "Nyalakan Kamera"}
+              </button>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Kamera membantu operator membaca QR di perangkat mobile.
+              </p>
+            </div>
+
+            {cameraError ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                {cameraError}
+              </div>
+            ) : null}
+
+            {cameraOpen ? (
+              <video
+                ref={videoRef}
+                className="h-48 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-black object-cover"
+                autoPlay
+                playsInline
+                muted
+              />
+            ) : null}
+
+            <select
+              value={selectedAllocationId}
+              onChange={(event) => setSelectedAllocationId(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Pilih alokasi batch</option>
+              {(allocationSummary?.allocations ?? []).map((item) => (
+                <option key={item.allocationId} value={item.allocationId}>
+                  {item.batchNumber} - {formatKg(item.allocatedQuantity)} Kg
+                </option>
+              ))}
+            </select>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <input
+                value={qrInput}
+                onChange={(event) => setQrInput(event.target.value)}
+                placeholder="QR Code"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={weightInput}
+                onChange={(event) => setWeightInput(event.target.value)}
+                placeholder="Berat Kg"
+                inputMode="decimal"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddScan}
+              className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white"
+            >
+              Tambahkan Hasil Scan
+            </button>
+
+            <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-sm">
+              <p>
+                Total Scan: <span className="font-semibold">{formatKg(scanTotal)} Kg</span>
+              </p>
+              <p>
+                Required SO: <span className="font-semibold">{formatKg(requiredKg)} Kg</span>
+              </p>
+              <p>
+                Selisih: <span className="font-semibold">{formatKg(requiredKg - scanTotal)} Kg</span>
+              </p>
+            </div>
+
+            <div className="max-h-60 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-dark-section text-left">
+                  <tr>
+                    <th className="px-3 py-2">Batch</th>
+                    <th className="px-3 py-2">QR</th>
+                    <th className="px-3 py-2 text-right">Kg</th>
+                    <th className="px-3 py-2">Waktu</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {scanItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                        No data available.
+                      </td>
+                    </tr>
+                  ) : (
+                    scanItems.map((item) => (
+                      <tr key={item.id} className="border-t border-gray-100 dark:border-gray-800">
+                        <td className="px-3 py-2">{item.batchNumber}</td>
+                        <td className="px-3 py-2">{item.qrCode}</td>
+                        <td className="px-3 py-2 text-right">{formatKg(item.weightKg)}</td>
+                        <td className="px-3 py-2">{formatDateTime(item.scannedAt)}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setScanItems((prev) => prev.filter((scan) => scan.id !== item.id))}
+                            className="text-xs font-semibold text-red-600 dark:text-red-300"
+                          >
+                            Hapus
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <h3 className="text-sm font-semibold text-navy dark:text-white">3. Buat Delivery Order</h3>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <input
+                value={shipmentForm.destination}
+                onChange={(event) => setShipmentForm((prev) => ({ ...prev, destination: event.target.value }))}
+                placeholder="Lokasi Pengiriman"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={shipmentForm.vehicleNumber}
+                onChange={(event) => setShipmentForm((prev) => ({ ...prev, vehicleNumber: event.target.value }))}
+                placeholder="Nomor Kendaraan"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={shipmentForm.driverName}
+                onChange={(event) => setShipmentForm((prev) => ({ ...prev, driverName: event.target.value }))}
+                placeholder="Nama Driver"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <select
+                value={shipmentForm.transportModeId}
+                onChange={(event) => setShipmentForm((prev) => ({ ...prev, transportModeId: event.target.value }))}
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              >
+                <option value="">Pilih Moda Transport</option>
+                {transportModes.filter((item) => item.isActive).map((item) => (
+                  <option key={item.transportModeId} value={item.transportModeId}>
+                    {item.modeCode} - {item.modeName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCreateDeliveryOrder}
+              disabled={creatingShipment || !selectedSoId}
+              className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {creatingShipment ? "Membuat Delivery Order..." : "Buat Delivery Order"}
+            </button>
+          </article>
+
+          <article className="space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4 lg:col-span-2">
+            <h2 className="text-base font-semibold text-navy dark:text-white">Rekomendasi FEFO Batch</h2>
+            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-dark-section text-left">
+                  <tr>
+                    <th className="px-3 py-2">Prioritas</th>
+                    <th className="px-3 py-2">Batch</th>
+                    <th className="px-3 py-2">Ikan</th>
+                    <th className="px-3 py-2">Expiry</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingMaster ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                        Loading data...
+                      </td>
+                    </tr>
+                  ) : sortedFefoBatches.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                        No data available.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedFefoBatches.slice(0, 10).map((item, index) => (
+                      <tr key={item.batchId} className="border-t border-gray-100 dark:border-gray-800">
+                        <td className="px-3 py-2">#{index + 1}</td>
+                        <td className="px-3 py-2 font-medium">{item.batchNumber}</td>
+                        <td className="px-3 py-2">{item.fishSpeciesName ?? "-"}</td>
+                        <td className="px-3 py-2">{formatDate(item.expirationDate)}</td>
+                        <td className="px-3 py-2 text-right">{formatKg(item.currentQuantity)} Kg</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      ) : (
+        <section className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
+          <h2 className="text-base font-semibold text-navy dark:text-white">Progress Shipment</h2>
+
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <select
+              value={selectedShipmentId ?? ""}
+              onChange={(event) =>
+                setSelectedShipmentId(event.target.value ? Number(event.target.value) : null)
+              }
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Pilih Delivery Order</option>
+              {shipments.map((item) => (
+                <option key={item.shipmentId} value={item.shipmentId}>
+                  {item.shipmentNumber} - {item.customerName}
+                </option>
+              ))}
+            </select>
+            <input
+              readOnly
+              value={selectedShipment?.customerName ?? ""}
+              placeholder="Customer otomatis"
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm"
+            />
+            <input
+              readOnly
+              value={selectedShipment?.destination ?? ""}
+              placeholder="Lokasi pengiriman otomatis"
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
+            />
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-dark-section text-left">
+                <tr>
+                  <th className="px-3 py-2">DO Number</th>
+                  <th className="px-3 py-2">SO Number</th>
+                  <th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Updated</th>
+                  <th className="px-3 py-2">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingMaster ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                      Loading data...
+                    </td>
+                  </tr>
+                ) : shipments.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                      No data available.
+                    </td>
+                  </tr>
+                ) : (
+                  shipments.map((item) => {
+                    const next = nextShipmentStatus(item.status);
+                    return (
+                      <tr
+                        key={item.shipmentId}
+                        className={`border-t border-gray-100 dark:border-gray-800 ${
+                          item.shipmentId === selectedShipmentId ? "bg-cyan/5" : ""
+                        }`}
+                      >
+                        <td className="px-3 py-2 font-medium">{item.shipmentNumber}</td>
+                        <td className="px-3 py-2">{item.soNumber}</td>
+                        <td className="px-3 py-2">{item.customerName}</td>
+                        <td className="px-3 py-2">{item.status}</td>
+                        <td className="px-3 py-2">{formatDateTime(item.createdAt)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedShipmentId(item.shipmentId)}
+                              className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs"
+                            >
+                              Pilih
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!next || updatingShipmentId === item.shipmentId}
+                              onClick={() => handleAdvanceShipment(item)}
+                              className="rounded-md bg-navy px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {updatingShipmentId === item.shipmentId
+                                ? "Updating..."
+                                : next
+                                  ? `Lanjut ${next}`
+                                  : "Selesai"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </StockOutboundModuleShell>
+  );
+}
