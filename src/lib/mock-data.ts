@@ -419,3 +419,98 @@ export const mockOutboundChannel: MockOutboundChannel[] = [
     isActive: true,
   },
 ];
+
+// ── Financial / Sales Domain ─────────────────────────────────────
+
+export interface MockCurrency {
+  currencyCode: string;
+  currencyName: string;
+  isActive: boolean;
+}
+
+export const mockCurrency: MockCurrency[] = [
+  { currencyCode: "IDR", currencyName: "Indonesian Rupiah", isActive: true },
+  { currencyCode: "USD", currencyName: "US Dollar", isActive: true },
+  { currencyCode: "EUR", currencyName: "Euro", isActive: true },
+];
+
+export interface MockBankAccount {
+  branchId: number;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  isActive: boolean;
+}
+
+export const mockBankAccount: MockBankAccount[] = [
+  { branchId: 1, bankName: "Bank Central Asia (BCA)", accountNumber: "1234567890", accountName: "PT Perikanan Indonesia", isActive: true },
+  { branchId: 1, bankName: "Bank Mandiri", accountNumber: "0987654321", accountName: "PT Perikanan Indonesia (JKT)", isActive: true },
+];
+
+export interface MockTax {
+  taxCode: string;
+  taxPercentage: number;
+  isActive: boolean;
+}
+
+export const mockTax: MockTax[] = [
+  { taxCode: "PPN11", taxPercentage: 11.0, isActive: true },
+  { taxCode: "PPN12", taxPercentage: 12.0, isActive: true },
+  { taxCode: "NO_TAX", taxPercentage: 0.0, isActive: true },
+];
+
+export interface MockPaymentTerm {
+  termCode: string;
+  termName: string;
+  days: number;
+  isActive: boolean;
+}
+
+export const mockPaymentTerm: MockPaymentTerm[] = [
+  { termCode: "COD", termName: "Cash on Delivery", days: 0, isActive: true },
+  { termCode: "NET15", termName: "Net 15 Days", days: 15, isActive: true },
+  { termCode: "NET30", termName: "Net 30 Days", days: 30, isActive: true },
+  { termCode: "NET60", termName: "Net 60 Days", days: 60, isActive: true },
+];
+
+// ── Supplier Domain ─────────────────────────────────────────────
+
+export interface MockSupplier {
+  id: string;
+  supplierCode: string;
+  supplierName: string;
+  supplierType: string;
+  alamat: string;
+  nomorKontak: string;
+  nomorIdentitas: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const mockSupplier: MockSupplier[] = [
+  {
+    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    supplierCode: "SUP-001",
+    supplierName: "PT Nelayan Makmur",
+    supplierType: "Perusahaan",
+    alamat: "Jl. Muara Baru Ujung No. 12",
+    nomorKontak: "081234567890",
+    nomorIdentitas: "NPWP 12.345.678.9-012.000",
+    active: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "5c83f942-8c9d-4cf3-be38-51ec12345678",
+    supplierCode: "SUP-002",
+    supplierName: "Koperasi Nelayan Bakti",
+    supplierType: "Koperasi",
+    alamat: "Pelabuhan Ratu",
+    nomorKontak: "089876543210",
+    nomorIdentitas: "NIK 3171234567890001",
+    active: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+];
