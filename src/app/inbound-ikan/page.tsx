@@ -57,7 +57,9 @@ function InboundIkanContent() {
   }, []);
 
   useEffect(() => {
-    fetchActiveSuppliers();
+    queueMicrotask(() => {
+      void fetchActiveSuppliers();
+    });
   }, [fetchActiveSuppliers]);
 
   const handleSupplierCreated = () => {

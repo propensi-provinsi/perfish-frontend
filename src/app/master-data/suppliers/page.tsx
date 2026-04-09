@@ -1,32 +1,27 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Fragment, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  HiOutlineArrowUp,
   HiOutlineArrowDown,
-  HiOutlinePencilSquare,
-  HiOutlineEyeSlash,
-  HiOutlineEye,
+  HiOutlineArrowUp,
   HiOutlineCheckCircle,
-  HiOutlineExclamationCircle,
-  HiOutlineXMark,
   HiOutlineDocumentMagnifyingGlass,
+  HiOutlineExclamationCircle,
+  HiOutlineEye,
+  HiOutlineEyeSlash,
+  HiOutlinePencilSquare,
+  HiOutlineXMark,
 } from "react-icons/hi2";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
-import type {
-  ApiResponse,
-  SupplierData,
-  SupplierAuditPayload,
-  SupplierAuditResponse,
-} from "@/types";
-import { SUPPLIER_TYPES } from "@/types";
+import type { ApiResponse, SupplierAuditPayload, SupplierAuditResponse, SupplierData } from "@/types";
+import { SUPPLIER_TYPES } from "@/types/supplier";
 
-export default function MasterDataSuppliersPage() {
+export default function SupplierMasterDataPage() {
   return (
-    <ProtectedRoute allowedRoles={["SUPERADMIN", "KEPALA_CABANG", "SBB_STAFF"]}>
+    <ProtectedRoute>
       <AppShell>
         <SuppliersContent />
       </AppShell>
@@ -105,8 +100,32 @@ function SuppliersContent() {
     return rows;
   }, [suppliers, searchQuery, filterStatus, filterApproval, sortOrder]);
 
+  function getApprovalLabel(approvalStatus?: string) {
+    if (approvalStatus === "APPROVED") return "Disetujui";
+    if (approvalStatus === "REJECTED") return "Ditolak";
+    return "Menunggu";
+  }
+
+  function getActivationBlockedReason(supplier: SupplierData): string | null {
+    const approvalStatus = String(supplier.approvalStatus ?? "");
+    if (approvalStatus === "PENDING_APPROVAL") {
+      return `Supplier "${supplier.supplierName}" tidak bisa diaktifkan karena status persetujuan masih Menunggu.`;
+    }
+    if (approvalStatus === "REJECTED") {
+      return `Supplier "${supplier.supplierName}" tidak bisa diaktifkan karena status persetujuan Ditolak.`;
+    }
+    return null;
+  }
+
   async function handleToggleActive(supplier: SupplierData) {
     const next = !supplier.active;
+    if (next) {
+      const blockedReason = getActivationBlockedReason(supplier);
+      if (blockedReason) {
+        setNotif({ type: "error", message: blockedReason });
+        return;
+      }
+    }
     try {
       await apiClient.patch<ApiResponse<SupplierData>>(`/v1/suppliers/${supplier.id}`, {
         active: next,
@@ -295,15 +314,22 @@ function SuppliersContent() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
+                      {(() => {
+                        const approvalStatus = String(s.approvalStatus ?? "");
+                        return (
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          s.approvalStatus === "APPROVED"
+                          approvalStatus === "APPROVED"
                             ? "bg-green-100 text-green-700"
+                            : approvalStatus === "REJECTED"
+                              ? "bg-red-100 text-red-700"
                             : "bg-amber-100 text-amber-700"
                         }`}
                       >
-                        {s.approvalStatus === "APPROVED" ? "Disetujui" : "Menunggu"}
+                        {getApprovalLabel(s.approvalStatus)}
                       </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
@@ -341,6 +367,13 @@ function SuppliersContent() {
                         )}
                         <button
                           onClick={() => {
+                            if (!s.active) {
+                              const blockedReason = getActivationBlockedReason(s);
+                              if (blockedReason) {
+                                setNotif({ type: "error", message: blockedReason });
+                                return;
+                              }
+                            }
                             if (
                               window.confirm(
                                 s.active

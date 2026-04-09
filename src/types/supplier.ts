@@ -1,5 +1,5 @@
 /** Status persetujuan supplier (master). */
-export type MasterSupplierApprovalStatus = "PENDING_APPROVAL" | "APPROVED";
+export type MasterSupplierApprovalStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
 /** @deprecated Use MasterSupplierApprovalStatus */
 export type SupplierApprovalStatus = MasterSupplierApprovalStatus;
 
