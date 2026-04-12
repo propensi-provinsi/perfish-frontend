@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, Fragment, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment, type FormEvent } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import apiClient from "@/lib/api";
@@ -15,6 +15,8 @@ import {
   SUPPLIER_TYPES,
   type FishSpeciesResponse,
   type FishFormResponse,
+  type FishGradeResponse,
+  type FishSkuResponse,
   type ColdStorageResponse,
 } from "@/types";
 
@@ -37,14 +39,20 @@ type InboundToast = { type: "success" | "error"; message: string } | null;
 /** Baris rincian ikan (GET /inbound-fish → lines) */
 type InboundFishLineRow = {
   id: string;
+  speciesId: number;
   speciesCode: string;
   speciesName: string;
   size: string;
   bentuk: string;
+  formId: number | null;
+  resolvedSkuId: number | null;
+  resolvedSkuCode: string | null;
+  qcGradeId: number | null;
   qcGrade: string | null;
   qcJumlahBatchKandangMacan: number | null;
   qcTotalBeratKg: number | string | null;
   qcSuhuPenerimaan: number | string | null;
+  qcSuhuSesuaiStandar: boolean | null;
 };
 
 /** Satu header inbound ikan (GET /inbound-fish) */
@@ -74,6 +82,26 @@ function formatDateDdMmYyyy(isoDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   return isoDate;
+}
+
+/** Contoh backend: "CS-JKT-01 — Cold Storage Jakarta 1" → tampilkan hanya nama gudang. */
+function shortColdStorageLabel(full: string): string {
+  const sep = " — ";
+  const i = full.indexOf(sep);
+  if (i === -1) return full.trim();
+  const right = full.slice(i + sep.length).trim();
+  return right || full.trim();
+}
+
+function inboundRowHasCekMutuData(row: InboundFishRow): boolean {
+  return row.lines.some(
+    (ln) =>
+      ln.qcGradeId != null ||
+      ln.resolvedSkuId != null ||
+      ln.qcTotalBeratKg != null ||
+      ln.qcJumlahBatchKandangMacan != null ||
+      ln.qcSuhuPenerimaan != null
+  );
 }
 
 function InboundIkanContent() {
@@ -133,16 +161,22 @@ function InboundIkanContent() {
           coldStorageLabel: r.coldStorageLabel,
           tanggalPenerimaan: r.tanggalPenerimaan,
           createdAt: r.createdAt,
-          lines: (r.lines ?? []).map((ln) => ({
+            lines: (r.lines ?? []).map((ln) => ({
             id: ln.id,
+            speciesId: ln.speciesId ?? 0,
             speciesCode: ln.speciesCode,
             speciesName: ln.speciesName,
             size: ln.size,
             bentuk: ln.bentuk,
+            formId: ln.formId ?? null,
+            resolvedSkuId: ln.resolvedSkuId ?? null,
+            resolvedSkuCode: ln.resolvedSkuCode ?? null,
+            qcGradeId: ln.qcGradeId ?? null,
             qcGrade: ln.qcGrade ?? null,
             qcJumlahBatchKandangMacan: ln.qcJumlahBatchKandangMacan ?? null,
             qcTotalBeratKg: ln.qcTotalBeratKg ?? null,
             qcSuhuPenerimaan: ln.qcSuhuPenerimaan ?? null,
+            qcSuhuSesuaiStandar: ln.qcSuhuSesuaiStandar ?? null,
           })),
         }))
       );
@@ -232,7 +266,7 @@ function InboundIkanContent() {
       <section>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard label="Total Penerimaan" value={loadingReceivings ? "…" : String(totalRecv)} />
-          <SummaryCard label="Menunggu QC (Pending)" value={loadingReceivings ? "…" : String(pendingCount)} />
+          <SummaryCard label="Menunggu Cek Mutu (Pending)" value={loadingReceivings ? "…" : String(pendingCount)} />
           <SummaryCard label="Disetujui" value={loadingReceivings ? "…" : String(approvedCount)} />
           <SummaryCard label="Ditolak" value="-" />
         </div>
@@ -245,7 +279,7 @@ function InboundIkanContent() {
             Daftar Penerimaan Ikan
           </h2>
           {loadingReceivings && (
-            <span className="text-xs text-gray-500">Memuat…</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Memuat…</span>
           )}
         </div>
         <div className="overflow-x-auto">
@@ -258,29 +292,30 @@ function InboundIkanContent() {
                 <th className="px-4 py-3 font-medium">Lokasi Gudang</th>
                 <th className="px-4 py-3 font-medium">Tanggal</th>
                 <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium w-28">QC</th>
+                <th className="px-4 py-3 font-medium w-36">Cek Mutu</th>
               </tr>
             </thead>
             <tbody>
               {inboundRows.length === 0 && !loadingReceivings && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     Belum ada data penerimaan. Klik &quot;Catat Penerimaan&quot; untuk menambah.
                   </td>
                 </tr>
               )}
               {inboundRows.map((row) => {
                 const open = expandedIds.has(row.id);
+                const hasCekMutuFilled = inboundRowHasCekMutuData(row);
                 return (
                   <Fragment key={row.id}>
                     <tr
-                      className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50/80 dark:hover:bg-white/5"
+                      className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5"
                     >
                       <td className="px-2 py-3 align-middle">
                         <button
                           type="button"
                           onClick={() => toggleExpanded(row.id)}
-                          className="rounded p-1 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10"
+                          className="rounded p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/10"
                           aria-expanded={open}
                           title={open ? "Sembunyikan rincian" : "Tampilkan rincian ikan"}
                         >
@@ -290,7 +325,7 @@ function InboundIkanContent() {
                       <td className="px-4 py-3 font-mono text-xs">{row.batchCode}</td>
                       <td className="px-4 py-3">{row.supplierName}</td>
                       <td className="px-4 py-3 max-w-[220px] truncate" title={row.coldStorageLabel}>
-                        {row.coldStorageLabel}
+                        {shortColdStorageLabel(row.coldStorageLabel)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {formatDateDdMmYyyy(row.tanggalPenerimaan)}
@@ -315,12 +350,22 @@ function InboundIkanContent() {
                       <td className="px-4 py-3">
                         <button
                           type="button"
-                          className="rounded-md border border-cyan/60 bg-cyan/10 px-2 py-1 text-xs font-medium text-cyan-800 dark:text-cyan-200 hover:bg-cyan/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                          disabled={row.status !== "PENDING"}
-                          title={row.status !== "PENDING" ? "QC sudah selesai" : "Isi QC"}
+                          className={
+                            hasCekMutuFilled
+                              ? "rounded-md border border-violet-500/50 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 dark:border-violet-400/40 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-900/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              : "rounded-md border border-cyan/60 bg-cyan/10 px-2 py-1 text-xs font-medium text-cyan-800 dark:text-cyan-200 hover:bg-cyan/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                          }
+                          disabled={row.status !== "PENDING" && row.status !== "APPROVED"}
+                          title={
+                            row.status !== "PENDING" && row.status !== "APPROVED"
+                              ? "Tidak dapat dibuka pada status ini"
+                              : hasCekMutuFilled
+                                ? "Ubah data cek mutu"
+                                : "Buka lembar cek mutu"
+                          }
                           onClick={() => setQcRow(row)}
                         >
-                          QC
+                          {hasCekMutuFilled ? "Edit" : "Periksa"}
                         </button>
                       </td>
                     </tr>
@@ -328,26 +373,30 @@ function InboundIkanContent() {
                       <tr key={`${row.id}-detail`} className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-white/[0.03]">
                         <td colSpan={7} className="px-4 py-3">
                           <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                            Rincian ikan ({row.lines.length} baris)
+                            Rincian Ikan ({new Set(row.lines.map((l) => l.speciesId)).size} Spesies)
                           </p>
                           <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
                             <table className="min-w-full text-xs">
                               <thead>
                                 <tr className="bg-white dark:bg-dark-card text-left text-gray-600 dark:text-gray-400">
+                                  <th className="px-3 py-2 font-medium">SKU</th>
                                   <th className="px-3 py-2 font-medium">Jenis Ikan</th>
                                   <th className="px-3 py-2 font-medium">Size</th>
                                   <th className="px-3 py-2 font-medium">Bentuk</th>
-                                  <th className="px-3 py-2 font-medium">Grade (QC)</th>
-                                  <th className="px-3 py-2 font-medium">Batch (KM)</th>
-                                  <th className="px-3 py-2 font-medium">Total berat (kg)</th>
+                                  <th className="px-3 py-2 font-medium">Grade</th>
+                                  <th className="px-3 py-2 font-medium">Jumlah Batch (KM)</th>
+                                  <th className="px-3 py-2 font-medium">Total Berat (kg)</th>
                                   <th className="px-3 py-2 font-medium">Suhu (°C)</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {row.lines.map((ln) => (
-                                  <tr key={ln.id} className="border-t border-gray-100 dark:border-gray-800">
-                                    <td className="px-3 py-2">
-                                      {ln.speciesCode} — {ln.speciesName}
+                                  <tr key={ln.id} className="border-t border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100">
+                                    <td className="px-3 py-2 font-mono text-[11px]">
+                                      {ln.resolvedSkuCode ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2" title={`${ln.speciesCode} — ${ln.speciesName}`}>
+                                      {ln.speciesName}
                                     </td>
                                     <td className="px-3 py-2">{ln.size}</td>
                                     <td className="px-3 py-2">{ln.bentuk}</td>
@@ -394,7 +443,7 @@ function InboundIkanContent() {
             setShowAddPenerimaan(false);
             setToast({
               type: "success",
-              message: "Data penerimaan berhasil dikirim dan menunggu QC",
+              message: "Data penerimaan berhasil dikirim dan menunggu cek mutu",
             });
             void fetchInboundFish();
           }}
@@ -407,7 +456,10 @@ function InboundIkanContent() {
           onClose={() => setQcRow(null)}
           onSuccess={() => {
             setQcRow(null);
-            setToast({ type: "success", message: "QC berhasil disimpan; penerimaan disetujui." });
+            setToast({
+              type: "success",
+              message: "Cek mutu berhasil disimpan; SKU ditetapkan. Status tetap Pending hingga proses berikutnya.",
+            });
             void fetchInboundFish();
           }}
           onError={(msg) => setToast({ type: "error", message: msg })}
@@ -657,16 +709,16 @@ function AddSupplierModal({
   const supplierValid = supplierForm.supplierName.trim().length > 0 && auditId != null;
 
   const inputClsBase =
-    "w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 dark:bg-dark-card dark:text-gray-100 ";
+    "w-full rounded-md border px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-1 dark:bg-dark-card ";
   const inputClsError =
     "border-red-500 focus:border-red-500 focus:ring-red-500 dark:border-red-500";
   const inputClsNormal =
-    "border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600";
+    "border-gray-300 focus:border-cyan focus:ring-cyan dark:border-gray-600";
   function auditInputCls(fieldKey: AuditFieldKey) {
     return inputClsBase + (auditFieldErrors[fieldKey] ? inputClsError : inputClsNormal);
   }
   const inputCls =
-    "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100";
+    "w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan dark:border-gray-600 dark:bg-dark-card";
 
   function setAudit<K extends keyof SupplierAuditPayload>(key: K, value: SupplierAuditPayload[K]) {
     setAuditForm((prev) => ({ ...prev, [key]: value }));
@@ -1052,7 +1104,10 @@ function AuditFormSection({ title, fields }: { title: string; fields: React.Reac
 type RincianDraft = {
   key: string;
   jenisIkan: number | "";
+  /** ID master_fish_form — dikirim ke backend sebagai form_id */
+  formId: number | "";
   size: string;
+  /** Nama bentuk untuk tampilan (sinkron dengan pilihan form) */
   bentuk: string;
 };
 
@@ -1071,7 +1126,13 @@ function AddPenerimaanModal({
     new Date().toISOString().slice(0, 10)
   );
   const [rincian, setRincian] = useState<RincianDraft[]>(() => [
-    { key: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `k-${Date.now()}`, jenisIkan: "", size: "", bentuk: "" },
+    {
+      key: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `k-${Date.now()}`,
+      jenisIkan: "",
+      formId: "",
+      size: "",
+      bentuk: "",
+    },
   ]);
   /** Sub-form rincian ikan: dibuka dengan tombol + di bawah field utama */
   const [rincianSectionOpen, setRincianSectionOpen] = useState(false);
@@ -1111,10 +1172,10 @@ function AddPenerimaanModal({
   }, []);
 
   const inputCls =
-    "w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-dark-card px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+    "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan dark:border-gray-600 dark:bg-dark-card dark:text-gray-100 dark:placeholder:text-gray-400";
 
   const rincianValid = rincian.every(
-    (r) => r.jenisIkan !== "" && r.size.trim() !== "" && r.bentuk.trim() !== ""
+    (r) => r.jenisIkan !== "" && r.formId !== "" && r.size.trim() !== "" && r.bentuk.trim() !== ""
   );
 
   const canSubmit =
@@ -1134,6 +1195,7 @@ function AddPenerimaanModal({
       {
         key: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `k-${Date.now()}-${prev.length}`,
         jenisIkan: "",
+        formId: "",
         size: "",
         bentuk: "",
       },
@@ -1165,6 +1227,7 @@ function AddPenerimaanModal({
         tanggalPenerimaan,
         lines: rincian.map((r) => ({
           jenisIkan: r.jenisIkan,
+          form_id: r.formId,
           size: r.size.trim(),
           bentuk: r.bentuk.trim(),
         })),
@@ -1192,7 +1255,7 @@ function AddPenerimaanModal({
       )}
 
       {noActiveSuppliers && (
-        <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
           Tidak ada supplier aktif. Tambahkan supplier terlebih dahulu.
         </div>
       )}
@@ -1218,7 +1281,7 @@ function AddPenerimaanModal({
             value={coldStorageId === "" ? "" : coldStorageId}
             onChange={(e) => setColdStorageId(e.target.value === "" ? "" : Number(e.target.value))}
             disabled={loadingMasters || coldStorageOptions.length === 0}
-            className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400`}
+            className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:bg-gray-800/70 dark:disabled:text-gray-500`}
           >
             <option value="">
               {loadingMasters ? "Memuat lokasi gudang…" : "Pilih lokasi gudang"}
@@ -1236,7 +1299,7 @@ function AddPenerimaanModal({
             type="date"
             value={tanggalPenerimaan}
             onChange={(e) => setTanggalPenerimaan(e.target.value)}
-            className={inputCls}
+            className={`${inputCls} dark:[color-scheme:dark]`}
           />
         </Field>
 
@@ -1264,7 +1327,7 @@ function AddPenerimaanModal({
               <button
                 type="button"
                 onClick={() => setRincianSectionOpen(false)}
-                className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 underline"
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 underline"
                 title="Sembunyikan (data baris tetap tersimpan di form)"
               >
                 Sembunyikan
@@ -1291,7 +1354,7 @@ function AddPenerimaanModal({
                   <button
                     type="button"
                     onClick={() => removeRincianRow(row.key)}
-                    className="text-xs text-red-600 hover:underline"
+                    className="text-xs text-red-600 hover:underline dark:text-red-400"
                   >
                     Hapus
                   </button>
@@ -1306,7 +1369,7 @@ function AddPenerimaanModal({
                     })
                   }
                   disabled={loadingMasters || speciesOptions.length === 0}
-                  className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400`}
+                  className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:bg-gray-800/70 dark:disabled:text-gray-500`}
                 >
                   <option value="">
                     {loadingMasters ? "Memuat jenis ikan…" : "Pilih Jenis Ikan"}
@@ -1330,16 +1393,23 @@ function AddPenerimaanModal({
               </Field>
               <Field label="Bentuk" required>
                 <select
-                  value={row.bentuk}
-                  onChange={(e) => updateRincian(row.key, { bentuk: e.target.value })}
+                  value={row.formId === "" ? "" : row.formId}
+                  onChange={(e) => {
+                    const v = e.target.value === "" ? "" : Number(e.target.value);
+                    const opt = formOptions.find((f) => f.formId === v);
+                    updateRincian(row.key, {
+                      formId: v,
+                      bentuk: opt ? opt.formName.trim() : "",
+                    });
+                  }}
                   disabled={loadingMasters || formOptions.length === 0}
-                  className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400`}
+                  className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:bg-gray-800/70 dark:disabled:text-gray-500`}
                 >
                   <option value="">
                     {loadingMasters ? "Memuat bentuk (form)…" : "Pilih bentuk (Form)"}
                   </option>
                   {formOptions.map((f) => (
-                    <option key={f.formId} value={f.formName}>
+                    <option key={f.formId} value={f.formId}>
                       {f.formCode} — {f.formName}
                     </option>
                   ))}
@@ -1361,7 +1431,7 @@ function AddPenerimaanModal({
           <button
             type="submit"
             disabled={!canSubmit || submitting}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Menyimpan…" : "Submit Penerimaan"}
           </button>
@@ -1372,15 +1442,47 @@ function AddPenerimaanModal({
 }
 
 /* ================================================================
-   QC Modal — POST /inbound-fish/:id/qc
+   Modal Cek Mutu — POST /inbound-fish/:id/qc
    ================================================================ */
 
-type QcLineForm = {
+const SUHU_TOLERANSI_C = 2;
+
+function skuMatchesLineSpeciesForm(s: FishSkuResponse, line: InboundFishLineRow): boolean {
+  if (s.speciesId !== line.speciesId || !s.isActive) return false;
+  if (line.formId != null && line.formId > 0) return s.formId === line.formId;
+  return (s.formName || "").trim().toLowerCase() === (line.bentuk || "").trim().toLowerCase();
+}
+
+function skusForLineAndGrade(all: FishSkuResponse[], line: InboundFishLineRow, gradeId: number): FishSkuResponse[] {
+  return all.filter((s) => skuMatchesLineSpeciesForm(s, line) && s.gradeId === gradeId);
+}
+
+function weightFitsSku(kg: number, s: FishSkuResponse): boolean {
+  const min = s.minWeightKg != null && Number.isFinite(Number(s.minWeightKg)) ? Number(s.minWeightKg) : null;
+  const max = s.maxWeightKg != null && Number.isFinite(Number(s.maxWeightKg)) ? Number(s.maxWeightKg) : null;
+  if (min != null && kg < min) return false;
+  if (max != null && kg > max) return false;
+  return true;
+}
+
+function formatSkuWeightRanges(skus: FishSkuResponse[]): string {
+  return skus
+    .map((s) => {
+      const a = s.minWeightKg != null ? String(s.minWeightKg) : "—";
+      const b = s.maxWeightKg != null ? String(s.maxWeightKg) : "—";
+      return `${a}–${b} kg`;
+    })
+    .join(" · ");
+}
+
+type CekMutuLineForm = {
   lineId: string;
+  speciesId: number;
   speciesLabel: string;
   size: string;
   bentuk: string;
-  grade: string;
+  formId: number | null;
+  gradeId: number | "";
   jumlahBatch: string;
   totalBerat: string;
   suhu: string;
@@ -1397,57 +1499,95 @@ function QcModal({
   onSuccess: () => void;
   onError: (msg: string) => void;
 }) {
-  const [lines, setLines] = useState<QcLineForm[]>(() =>
+  const initialHadCekMutu = useMemo(
+    () =>
+      row.lines.some(
+        (ln) =>
+          ln.qcGradeId != null ||
+          ln.qcTotalBeratKg != null ||
+          ln.qcJumlahBatchKandangMacan != null ||
+          ln.qcSuhuPenerimaan != null
+      ),
+    [row.lines]
+  );
+
+  const [lines, setLines] = useState<CekMutuLineForm[]>(() =>
     row.lines.map((ln) => ({
       lineId: ln.id,
+      speciesId: ln.speciesId,
       speciesLabel: `${ln.speciesCode} — ${ln.speciesName}`,
       size: ln.size,
       bentuk: ln.bentuk,
-      grade: "",
-      jumlahBatch: "",
-      totalBerat: "",
-      suhu: "",
+      formId: ln.formId,
+      gradeId: ln.qcGradeId != null ? ln.qcGradeId : "",
+      jumlahBatch: ln.qcJumlahBatchKandangMacan != null ? String(ln.qcJumlahBatchKandangMacan) : "",
+      totalBerat: ln.qcTotalBeratKg != null ? String(ln.qcTotalBeratKg) : "",
+      suhu: ln.qcSuhuPenerimaan != null ? String(ln.qcSuhuPenerimaan) : "",
     }))
   );
+  const [gradeOptions, setGradeOptions] = useState<FishGradeResponse[]>([]);
+  const [skuMaster, setSkuMaster] = useState<FishSkuResponse[]>([]);
+  const [mastersLoading, setMastersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editConfirmOpen, setEditConfirmOpen] = useState(false);
 
-  function setLine(lineId: string, patch: Partial<QcLineForm>) {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setMastersLoading(true);
+      try {
+        const [gRes, sRes] = await Promise.all([
+          apiClient.get<ApiResponse<FishGradeResponse[]>>("/v1/master/fish/grades"),
+          apiClient.get<ApiResponse<FishSkuResponse[]>>("/v1/master/fish/skus"),
+        ]);
+        if (!cancelled) {
+          setGradeOptions((gRes.data.data ?? []).filter((g) => g.isActive === true));
+          setSkuMaster((sRes.data.data ?? []).filter((s) => s.isActive === true));
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Gagal memuat master grade / SKU");
+        }
+      } finally {
+        if (!cancelled) setMastersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function setLine(lineId: string, patch: Partial<CekMutuLineForm>) {
     setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, ...patch } : l)));
   }
 
-  const qcValid = lines.every(
-    (l) =>
-      l.grade.trim() !== "" &&
-      l.jumlahBatch.trim() !== "" &&
-      Number.isFinite(Number(l.jumlahBatch)) &&
-      Number(l.jumlahBatch) >= 1 &&
-      l.totalBerat.trim() !== "" &&
-      Number.isFinite(Number(l.totalBerat)) &&
-      Number(l.totalBerat) > 0 &&
-      l.suhu.trim() !== "" &&
-      Number.isFinite(Number(l.suhu))
-  );
+  const cekMutuValid = lines.every((l) => {
+    if (l.gradeId === "" || mastersLoading) return false;
+    if (l.jumlahBatch.trim() === "" || !Number.isFinite(Number(l.jumlahBatch)) || Number(l.jumlahBatch) < 1) return false;
+    if (l.totalBerat.trim() === "" || !Number.isFinite(Number(l.totalBerat)) || Number(l.totalBerat) <= 0) return false;
+    if (l.suhu.trim() === "" || !Number.isFinite(Number(l.suhu))) return false;
+    return true;
+  });
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!qcValid) return;
+  async function postCekMutu() {
     setSubmitting(true);
     setError(null);
     try {
       await apiClient.post(`/inbound-fish/${row.id}/qc`, {
         barisQc: lines.map((l) => ({
           lineId: l.lineId,
-          grade: l.grade.trim(),
+          gradeId: Number(l.gradeId),
           jumlahBatchKandangMacan: Number(l.jumlahBatch),
           totalBeratKg: Number(l.totalBerat),
           suhuPenerimaan: Number(l.suhu),
         })),
       });
+      setEditConfirmOpen(false);
       onSuccess();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      const msg = axiosErr.response?.data?.message || "Gagal menyimpan QC";
+      const msg = axiosErr.response?.data?.message || "Gagal menyimpan cek mutu";
       setError(msg);
       onError(msg);
     } finally {
@@ -1455,13 +1595,23 @@ function QcModal({
     }
   }
 
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!cekMutuValid) return;
+    if (initialHadCekMutu) {
+      setEditConfirmOpen(true);
+      return;
+    }
+    void postCekMutu();
+  }
+
   const inputCls =
-    "w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-dark-card px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+    "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan dark:border-gray-600 dark:bg-dark-card dark:text-gray-100 dark:placeholder:text-gray-400";
 
   return (
     <ModalOverlay onClose={onClose} panelClassName="max-w-3xl max-h-[90vh] overflow-y-auto">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
-        QC Penerimaan — {row.batchCode}
+        Lembar cek mutu — {row.batchCode}
       </h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         {row.supplierName} · {formatDateDdMmYyyy(row.tanggalPenerimaan)}
@@ -1474,62 +1624,126 @@ function QcModal({
       )}
 
       <form className="space-y-6" onSubmit={handleSubmit}>
-        {lines.map((l, idx) => (
-          <div
-            key={l.lineId}
-            className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50/50 dark:bg-white/[0.03]"
-          >
-            <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                Baris {idx + 1}: {l.speciesLabel}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Size: {l.size || "—"} · Bentuk: {l.bentuk || "—"}
-              </p>
+        {lines.map((l, idx) => {
+          const rowLine = row.lines.find((x) => x.id === l.lineId);
+          const candidates =
+            rowLine && l.gradeId !== "" ? skusForLineAndGrade(skuMaster, rowLine, Number(l.gradeId)) : [];
+          const refSku = candidates.find((s) => s.defaultStorageTempC != null && Number.isFinite(Number(s.defaultStorageTempC)));
+          const refTemp = refSku != null ? Number(refSku.defaultStorageTempC) : null;
+          const suhuNum = Number(l.suhu);
+          const suhuOk =
+            refTemp != null && Number.isFinite(suhuNum)
+              ? Math.abs(suhuNum - refTemp) <= SUHU_TOLERANSI_C
+              : null;
+          const kg = Number(l.totalBerat);
+          const beratInRange =
+            l.gradeId !== "" && candidates.length > 0 && Number.isFinite(kg)
+              ? candidates.some((s) => weightFitsSku(kg, s))
+              : true;
+
+          return (
+            <div
+              key={l.lineId}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50/50 dark:bg-white/[0.03]"
+            >
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  {idx + 1}. {l.speciesLabel}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Size: {l.size || "—"} · Bentuk: {l.bentuk || "—"}
+                </p>
+              </div>
+              {mastersLoading && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">Memuat master grade & SKU…</p>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Grade" required>
+                  <select
+                    value={l.gradeId === "" ? "" : l.gradeId}
+                    onChange={(e) =>
+                      setLine(l.lineId, {
+                        gradeId: e.target.value === "" ? "" : Number(e.target.value),
+                      })
+                    }
+                    disabled={mastersLoading || gradeOptions.length === 0}
+                    className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400 dark:disabled:bg-gray-800/70 dark:disabled:text-gray-500`}
+                  >
+                    <option value="">{mastersLoading ? "Memuat…" : "Pilih grade"}</option>
+                    {gradeOptions.map((g) => (
+                      <option key={g.gradeId} value={g.gradeId}>
+                        {g.gradeCode} — {g.gradeName}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Jumlah Batch (KM)" required>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={l.jumlahBatch}
+                    onChange={(e) => setLine(l.lineId, { jumlahBatch: e.target.value })}
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Total Berat (kg)" required>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.001"
+                    value={l.totalBerat}
+                    onChange={(e) => setLine(l.lineId, { totalBerat: e.target.value })}
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Suhu penerimaan (°C)" required>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={l.suhu}
+                    onChange={(e) => setLine(l.lineId, { suhu: e.target.value })}
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+              {l.gradeId !== "" && candidates.length > 0 && (
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Rentang berat SKU master (Min–Max) untuk kombinasi ini:{" "}
+                  <span className="font-medium">{formatSkuWeightRanges(candidates)}</span>
+                </p>
+              )}
+              {l.gradeId !== "" && candidates.length > 0 && !beratInRange && Number.isFinite(kg) && (
+                <p className="text-xs text-amber-800 dark:text-amber-200 rounded border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 px-2 py-1.5">
+                  Total berat di luar rentang SKU master di atas. Setelah disimpan, sistem akan membuat SKU baru (otomatis) yang mencakup berat ini.
+                </p>
+              )}
+              {l.gradeId !== "" && candidates.length === 0 && (
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  Belum ada SKU master untuk kombinasi ini. Setelah disimpan, sistem akan membuat SKU baru (otomatis).
+                </p>
+              )}
+              {refTemp != null && (
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Standar suhu SKU ini adalah {refTemp}°C (toleransi ±{SUHU_TOLERANSI_C}°C).
+                </p>
+              )}
+              {refTemp != null && l.suhu.trim() !== "" && Number.isFinite(suhuNum) && (
+                <p
+                  className={`text-xs rounded border px-2 py-1.5 ${
+                    suhuOk
+                      ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200"
+                      : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                  }`}
+                >
+                  {suhuOk
+                    ? `Suhu penerimaan sesuai standar (referensi ${refTemp}°C ±${SUHU_TOLERANSI_C}°C).`
+                    : `Peringatan: Standar suhu SKU ini adalah ${refTemp}°C (toleransi ±${SUHU_TOLERANSI_C}°C).`}
+                </p>
+              )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Grade" required>
-                <input
-                  type="text"
-                  value={l.grade}
-                  onChange={(e) => setLine(l.lineId, { grade: e.target.value })}
-                  placeholder="Contoh: A"
-                  maxLength={50}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Jumlah Batch (Kandang Macan)" required>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={l.jumlahBatch}
-                  onChange={(e) => setLine(l.lineId, { jumlahBatch: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Total Berat (kg)" required>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.001"
-                  value={l.totalBerat}
-                  onChange={(e) => setLine(l.lineId, { totalBerat: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Suhu Penerimaan (°C)" required>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={l.suhu}
-                  onChange={(e) => setLine(l.lineId, { suhu: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="flex justify-end gap-3 pt-2">
           <button
@@ -1541,13 +1755,42 @@ function QcModal({
           </button>
           <button
             type="submit"
-            disabled={!qcValid || submitting}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!cekMutuValid || submitting}
+            className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? "Menyimpan…" : "Simpan QC"}
+            {submitting ? "Menyimpan…" : "Simpan"}
           </button>
         </div>
       </form>
+
+      {editConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="max-w-md rounded-lg border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-600 dark:bg-dark-card">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Ubah cek mutu?</h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Data cek mutu untuk penerimaan ini sudah pernah diisi. Apakah Anda yakin ingin mengubahnya?
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5"
+                onClick={() => setEditConfirmOpen(false)}
+                disabled={submitting}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-cyan px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50"
+                disabled={submitting}
+                onClick={() => void postCekMutu()}
+              >
+                {submitting ? "Menyimpan…" : "Ya, ubah"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ModalOverlay>
   );
 }
@@ -1563,19 +1806,25 @@ function ModalOverlay({
 }: {
   onClose: () => void;
   children: React.ReactNode;
-  /** Tailwind max-width / overflow, e.g. max-w-2xl max-h-[90vh] overflow-y-auto */
+  /** Tambahan kelas panel (sama pola dengan Master Data Supplier: default lebar max-w-2xl) */
   panelClassName?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
-        className={`relative w-full rounded-lg bg-white p-6 shadow-xl dark:bg-dark-card ${
-          panelClassName ?? "max-w-lg"
+        className={`relative w-full rounded-xl bg-white p-6 shadow-2xl dark:bg-dark-card ${
+          panelClassName ?? "max-w-2xl"
         }`}
       >
         <button
+          type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
+          className="absolute right-4 top-4 text-lg leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
           aria-label="Tutup"
         >
           ✕
@@ -1599,7 +1848,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">
+      <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {required && <span className="text-red-500"> *</span>}
       </label>
