@@ -7,21 +7,20 @@ import {
   HiOutlineCheckCircle,
   HiOutlineDocumentMagnifyingGlass,
   HiOutlineExclamationCircle,
-  HiOutlineEye,
-  HiOutlineEyeSlash,
   HiOutlinePencilSquare,
   HiOutlineXMark,
 } from "react-icons/hi2";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { ViewSupplierAuditModal } from "@/components/suppliers/ViewSupplierAuditModal";
 import AppShell from "@/components/layout/AppShell";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import type { ApiResponse, SupplierAuditPayload, SupplierAuditResponse, SupplierData } from "@/types";
-import { SUPPLIER_TYPES } from "@/types/supplier";
+import { SUPPLIER_TYPES, type MasterSupplierApprovalStatus } from "@/types/supplier";
 
 export default function SupplierMasterDataPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowedRoles={["SUPERADMIN"]}>
       <AppShell>
         <SuppliersContent />
       </AppShell>
@@ -31,14 +30,14 @@ export default function SupplierMasterDataPage() {
 
 type SortOrder = "asc" | "desc";
 type FilterStatus = "" | "active" | "inactive";
-type FilterApproval = "" | "APPROVED" | "PENDING_APPROVAL";
+type FilterApproval = "" | "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
 type Notif = { type: "success" | "error"; message: string };
 
 function SuppliersContent() {
   const { user } = useAuth();
   const [suppliers, setSuppliers] = useState<SupplierData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("");
@@ -103,6 +102,7 @@ function SuppliersContent() {
   function getApprovalLabel(approvalStatus?: string) {
     if (approvalStatus === "APPROVED") return "Disetujui";
     if (approvalStatus === "REJECTED") return "Ditolak";
+    if (approvalStatus === "PENDING_APPROVAL") return "Menunggu persetujuan";
     return "Menunggu";
   }
 
@@ -117,44 +117,25 @@ function SuppliersContent() {
     return null;
   }
 
-  async function handleToggleActive(supplier: SupplierData) {
-    const next = !supplier.active;
-    if (next) {
-      const blockedReason = getActivationBlockedReason(supplier);
-      if (blockedReason) {
-        setNotif({ type: "error", message: blockedReason });
-        return;
-      }
-    }
+  async function handleApprovalChange(supplier: SupplierData, next: MasterSupplierApprovalStatus) {
+    const current = supplier.approvalStatus ?? "PENDING_APPROVAL";
+    if (current === next) return;
+    setUpdatingApprovalId(supplier.id);
     try {
-      await apiClient.patch<ApiResponse<SupplierData>>(`/v1/suppliers/${supplier.id}`, {
-        active: next,
+      await apiClient.patch<ApiResponse<SupplierData>>(`/v1/suppliers/${supplier.id}/approval`, {
+        approvalStatus: next,
       });
-      setNotif({
-        type: "success",
-        message: next ? `${supplier.supplierName} diaktifkan` : `${supplier.supplierName} dinonaktifkan`,
-      });
-      fetchSuppliers();
+      setNotif({ type: "success", message: "Status persetujuan supplier diperbarui." });
+      await fetchSuppliers();
     } catch {
-      setNotif({ type: "error", message: "Gagal mengubah status supplier" });
-    }
-  }
-
-  async function handleApprove(supplier: SupplierData) {
-    setApprovingId(supplier.id);
-    try {
-      await apiClient.post<ApiResponse<SupplierData>>(`/v1/suppliers/${supplier.id}/approve`);
-      setNotif({ type: "success", message: `Supplier "${supplier.supplierName}" berhasil disetujui` });
-      fetchSuppliers();
-    } catch {
-      setNotif({ type: "error", message: "Gagal menyetujui supplier" });
+      setNotif({ type: "error", message: "Gagal memperbarui status persetujuan." });
     } finally {
-      setApprovingId(null);
+      setUpdatingApprovalId(null);
     }
   }
 
   const canAddSupplier = user?.role === "SUPERADMIN" || user?.role === "KEPALA_CABANG";
-  const canApprove = user?.role === "KEPALA_CABANG";
+  const canEditApproval = user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
 
   function handleCreated() {
     setShowAddModal(false);
@@ -229,6 +210,7 @@ function SuppliersContent() {
             <option value="">Semua Persetujuan</option>
             <option value="APPROVED">Disetujui</option>
             <option value="PENDING_APPROVAL">Menunggu</option>
+            <option value="REJECTED">Ditolak</option>
           </select>
 
           <button
@@ -269,10 +251,10 @@ function SuppliersContent() {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-dark-section">
               <tr>
-                {["Kode", "Nama Supplier", "Tipe", "Alamat", "Kontak", "Status", "Persetujuan", "Aksi"].map((h) => (
+                {["Kode", "Nama supplier", "Tipe", "Alamat", "Kontak", "Status", "Persetujuan", "Aksi"].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap"
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap"
                   >
                     {h}
                   </th>
@@ -314,41 +296,36 @@ function SuppliersContent() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {(() => {
-                        const approvalStatus = String(s.approvalStatus ?? "");
-                        return (
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          approvalStatus === "APPROVED"
-                            ? "bg-green-100 text-green-700"
-                            : approvalStatus === "REJECTED"
-                              ? "bg-red-100 text-red-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {getApprovalLabel(s.approvalStatus)}
-                      </span>
-                        );
-                      })()}
+                      {canEditApproval ? (
+                        <select
+                          value={(s.approvalStatus ?? "PENDING_APPROVAL") as MasterSupplierApprovalStatus}
+                          disabled={updatingApprovalId === s.id}
+                          onChange={(e) =>
+                            handleApprovalChange(s, e.target.value as MasterSupplierApprovalStatus)
+                          }
+                          className="max-w-[11rem] rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-800 shadow-sm focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20 disabled:opacity-60 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
+                          aria-label={`Persetujuan ${s.supplierName}`}
+                        >
+                          <option value="PENDING_APPROVAL">{getApprovalLabel("PENDING_APPROVAL")}</option>
+                          <option value="APPROVED">{getApprovalLabel("APPROVED")}</option>
+                          <option value="REJECTED">{getApprovalLabel("REJECTED")}</option>
+                        </select>
+                      ) : (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            String(s.approvalStatus ?? "") === "APPROVED"
+                              ? "bg-green-100 text-green-700"
+                              : String(s.approvalStatus ?? "") === "REJECTED"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {getApprovalLabel(s.approvalStatus)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
-                        {canApprove && s.approvalStatus === "PENDING_APPROVAL" && (
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Setujui supplier "${s.supplierName}"?`)) handleApprove(s);
-                            }}
-                            disabled={approvingId === s.id}
-                            title="Setujui supplier"
-                            className="rounded-lg p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-500/10 transition-colors disabled:opacity-50"
-                          >
-                            {approvingId === s.id ? (
-                              <span className="h-4 w-4 inline-block animate-spin rounded-full border-2 border-green-500/30 border-t-green-500" />
-                            ) : (
-                              <HiOutlineCheckCircle className="h-4 w-4" />
-                            )}
-                          </button>
-                        )}
                         <button
                           onClick={() => setEditingSupplier(s)}
                           title="Edit supplier"
@@ -365,33 +342,6 @@ function SuppliersContent() {
                             <HiOutlineDocumentMagnifyingGlass className="h-4 w-4" />
                           </button>
                         )}
-                        <button
-                          onClick={() => {
-                            if (!s.active) {
-                              const blockedReason = getActivationBlockedReason(s);
-                              if (blockedReason) {
-                                setNotif({ type: "error", message: blockedReason });
-                                return;
-                              }
-                            }
-                            if (
-                              window.confirm(
-                                s.active
-                                  ? `Nonaktifkan supplier "${s.supplierName}"?`
-                                  : `Aktifkan kembali supplier "${s.supplierName}"?`
-                              )
-                            )
-                              handleToggleActive(s);
-                          }}
-                          title={s.active ? "Nonaktifkan" : "Aktifkan"}
-                          className={`rounded-lg p-1.5 transition-colors ${
-                            s.active
-                              ? "text-gray-400 hover:text-red hover:bg-red/10"
-                              : "text-gray-400 hover:text-green hover:bg-green/10"
-                          }`}
-                        >
-                          {s.active ? <HiOutlineEyeSlash className="h-4 w-4" /> : <HiOutlineEye className="h-4 w-4" />}
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -408,13 +358,15 @@ function SuppliersContent() {
       )}
       {editingSupplier && (
         <EditSupplierModal
+          key={editingSupplier.id}
           supplier={editingSupplier}
+          getActivationBlockedReason={getActivationBlockedReason}
           onClose={() => setEditingSupplier(null)}
           onSuccess={handleUpdated}
         />
       )}
       {viewAuditSupplier && (
-        <ViewAuditModal
+        <ViewSupplierAuditModal
           supplier={viewAuditSupplier}
           onClose={() => setViewAuditSupplier(null)}
           onSaved={() => setNotif({ type: "success", message: "Audit berhasil diperbarui" })}
@@ -764,10 +716,12 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
 
 function EditSupplierModal({
   supplier,
+  getActivationBlockedReason,
   onClose,
   onSuccess,
 }: {
   supplier: SupplierData;
+  getActivationBlockedReason: (s: SupplierData) => string | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -778,6 +732,7 @@ function EditSupplierModal({
     nomorKontak: supplier.nomorKontak || "",
     nomorIdentitas: supplier.nomorIdentitas || "",
   });
+  const [active, setActive] = useState(supplier.active);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -799,14 +754,25 @@ function EditSupplierModal({
       setFieldErrors({ supplierName: "Nama supplier wajib diisi" });
       return;
     }
+    if (active && !supplier.active) {
+      const blocked = getActivationBlockedReason(supplier);
+      if (blocked) {
+        setFieldErrors({ _status: blocked });
+        return;
+      }
+    }
     setSubmitting(true);
     setFieldErrors({});
     try {
       await apiClient.put(`/v1/suppliers/${supplier.id}`, form);
+      if (active !== supplier.active) {
+        await apiClient.patch<ApiResponse<SupplierData>>(`/v1/suppliers/${supplier.id}`, { active });
+      }
       onSuccess();
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } };
-      setFieldErrors({ supplierName: ax.response?.data?.message || "Gagal menyimpan perubahan" });
+      const msg = ax.response?.data?.message || "Gagal menyimpan perubahan";
+      setFieldErrors({ supplierName: msg });
     } finally {
       setSubmitting(false);
     }
@@ -838,6 +804,35 @@ function EditSupplierModal({
         <Field label="Nomor Identitas" error={fieldErrors.nomorIdentitas}>
           <input name="nomorIdentitas" value={form.nomorIdentitas} onChange={handleChange} placeholder="Maks. 100, unik" maxLength={100} className={inputCls("nomorIdentitas")} />
         </Field>
+        <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-600 dark:bg-white/5">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => {
+                setActive(e.target.checked);
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next._status;
+                  return next;
+                });
+              }}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-cyan focus:ring-cyan"
+            />
+            <span>
+              <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">Supplier aktif</span>
+              <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                Nonaktifkan supplier dengan menghapus centang. Supplier tidak aktif tidak dipilih di penerimaan ikan.
+              </span>
+            </span>
+          </label>
+          {!active && (
+            <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-300">
+              Supplier akan dinonaktifkan setelah Anda menyimpan.
+            </p>
+          )}
+          {fieldErrors._status && <p className="mt-2 text-sm text-red-500">{fieldErrors._status}</p>}
+        </div>
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
             Batal
@@ -851,277 +846,6 @@ function EditSupplierModal({
   );
 }
 
-/* ================================================================
-   Audit Inspection Table — view + edit
-   Structured like the physical inspection form:
-   NO | ITEM INSPEKSI | CATATAN (answer)
-   ================================================================ */
-
-type AuditRow = {
-  key: string;
-  label: string;
-  type: "boolean" | "text" | "number" | "textarea" | "date";
-  rangeWith?: string;
-};
-
-type AuditSection = { code: string; title: string; rows: AuditRow[] };
-
-const AUDIT_SECTIONS: AuditSection[] = [
-  {
-    code: "A",
-    title: "Kapal Penangkap Ikan dari Supplier",
-    rows: [
-      { key: "aIkanDitangkapPakaiKapal", label: "Apakah Ikan ditangkap menggunakan Kapal Penangkap Ikan?", type: "boolean" },
-      { key: "aUkuranKapal", label: "Berapa besar Ukuran Kapal yang digunakan untuk menangkap Ikan?", type: "text" },
-      { key: "aLamaWaktuPenangkapanMin", label: "Berapa lama waktu penangkapan ikan?", type: "number", rangeWith: "aLamaWaktuPenangkapanMax" },
-      { key: "aAlatTangkap", label: "Alat Tangkap apa yang digunakan untuk menangkap Ikan?", type: "text" },
-      { key: "aJumlahAlatTangkap", label: "Berapa banyak jumlah alat tangkap yang dibawa selama 1 trip penangkapan ikan?", type: "number" },
-      { key: "aBanyakUmpan", label: "Berapa banyak umpan yang dibawa?", type: "number" },
-      { key: "aJumlahCrew", label: "Berapa jumlah orang / crew kapal?", type: "number" },
-    ],
-  },
-  {
-    code: "B",
-    title: "Cara Penanganan Ikan di atas Kapal oleh Supplier",
-    rows: [
-      { key: "bKapalDenganPembeku", label: "Kapal yang digunakan apakah kapal dengan pembeku?", type: "boolean" },
-      { key: "bKapasitasPembekuGudang", label: "Berapa kapasitas pembeku dan gudang beku di atas kapal?", type: "number" },
-      { key: "bAlurProsesPenanganan", label: "Bagaimana alur proses penanganan di atas kapal?", type: "textarea" },
-      { key: "bPenerapanSanitasiKapal", label: "Bagaimana penerapan sanitasi di atas kapal?", type: "textarea" },
-      { key: "bBanyakEsPerTripMin", label: "Berapa banyak es yang dibawa setiap 1 trip?", type: "number", rangeWith: "bBanyakEsPerTripMax" },
-      { key: "bLamaProsesHandling", label: "Berapa lama proses penangkapan dan handling ikan di atas kapal?", type: "number" },
-      { key: "bPembagianTugasKapal", label: "Bagaimana pembagian tugas di atas kapal?", type: "text" },
-    ],
-  },
-  {
-    code: "C",
-    title: "Cara Penanganan Ikan di tempat pengumpul sementara oleh Supplier",
-    rows: [
-      { key: "cIkanDisimpanTempatPengumpul", label: "Apakah ikan disimpan terlebih dahulu di tempat pengumpul?", type: "boolean" },
-      { key: "cAlurPenangananPengumpulan", label: "Bagaimana alur penanganan di tempat pengumpulan sementara?", type: "textarea" },
-      { key: "cMediaTempatMenampung", label: "Media apa yang digunakan sebagai tempat menampung sementara?", type: "text" },
-      { key: "cPenangananIkan", label: "Bagaimana penanganan ikan?", type: "textarea" },
-      { key: "cSanitasiPenampungan", label: "Bagaimana penerapan sanitasi di tempat penampungan sementara?", type: "textarea" },
-      { key: "cJumlahPekerjaPenampungan", label: "Berapa jumlah pekerja ditempat penampungan sementara?", type: "number" },
-      { key: "cPenggunaanEsPenampungan", label: "Berapa banyak penggunaan es untuk menampung ikan?", type: "number" },
-    ],
-  },
-  {
-    code: "D",
-    title: "Media Pengangkut Ikan",
-    rows: [
-      { key: "dCaraIkanDiangkut", label: "Bagaimana Ikan diangkut dan dibawa ke Unit Pengolahan?", type: "textarea" },
-      { key: "dKapasitasSekaliAngkutMin", label: "Berapa Kapasitas sekali angkut?", type: "number", rangeWith: "dKapasitasSekaliAngkutMax" },
-      { key: "dKondisiSanitasiMedia", label: "Bagaimana kondisi Sanitasi Media Pengangkut Ikan?", type: "textarea" },
-      { key: "dLamaMuatAngkutBongkarMin", label: "Berapa lama proses Muat, Angkut dan Bongkar menuju Unit Pengolahan?", type: "number", rangeWith: "dLamaMuatAngkutBongkarMax" },
-      { key: "dTenagaProsesPengangkutan", label: "Berapa banyak tenaga yang digunakan untuk proses pengangkutan?", type: "number" },
-    ],
-  },
-];
-
-function ViewAuditModal({
-  supplier,
-  onClose,
-  onSaved,
-}: {
-  supplier: SupplierData;
-  onClose: () => void;
-  onSaved?: () => void;
-}) {
-  const [audit, setAudit] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!supplier.auditId) return;
-    (async () => {
-      try {
-        const { data } = await apiClient.get<ApiResponse<Record<string, unknown>>>(
-          `/v1/supplier-audits/${supplier.auditId}`
-        );
-        setAudit(data.data);
-        setEditValues({ ...data.data });
-      } catch {
-        setError("Gagal memuat data audit");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [supplier.auditId]);
-
-  function setVal(key: string, value: unknown) {
-    setEditValues((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    setSaveMsg(null);
-    try {
-      const body: Record<string, unknown> = {};
-      for (const sec of AUDIT_SECTIONS) {
-        for (const row of sec.rows) {
-          body[row.key] = editValues[row.key] ?? null;
-          if (row.rangeWith) body[row.rangeWith] = editValues[row.rangeWith] ?? null;
-        }
-      }
-      body.tanggalInspeksi = editValues.tanggalInspeksi;
-      await apiClient.put(`/v1/supplier-audits/${supplier.auditId}`, body);
-      setAudit({ ...editValues });
-      setEditing(false);
-      setSaveMsg("Audit berhasil diperbarui");
-      onSaved?.();
-    } catch (err: unknown) {
-      const ax = err as { response?: { data?: { message?: string } } };
-      setError(ax.response?.data?.message || "Gagal menyimpan audit");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function displayVal(val: unknown): string {
-    if (val === true) return "Ya";
-    if (val === false) return "Tidak";
-    if (val == null || val === "") return "—";
-    return String(val);
-  }
-
-  const inputCls =
-    "w-full rounded border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-2 py-1 text-sm focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan/20";
-
-  function renderEditCell(row: AuditRow) {
-    const val = editValues[row.key];
-    if (row.type === "boolean") {
-      return (
-        <select value={val == null ? "" : String(val)} onChange={(e) => setVal(row.key, e.target.value === "true")} className={inputCls}>
-          <option value="true">Ya</option>
-          <option value="false">Tidak</option>
-        </select>
-      );
-    }
-    if (row.rangeWith) {
-      return (
-        <div className="flex gap-1 items-center">
-          <input type="number" min={0} value={val == null ? "" : String(val)} onChange={(e) => setVal(row.key, e.target.value ? Number(e.target.value) : null)} className={inputCls + " w-20"} placeholder="Min" />
-          <span className="text-gray-400 text-xs">s/d</span>
-          <input type="number" min={0} value={editValues[row.rangeWith] == null ? "" : String(editValues[row.rangeWith])} onChange={(e) => setVal(row.rangeWith!, e.target.value ? Number(e.target.value) : null)} className={inputCls + " w-20"} placeholder="Max" />
-        </div>
-      );
-    }
-    if (row.type === "textarea") {
-      return <textarea rows={2} value={val == null ? "" : String(val)} onChange={(e) => setVal(row.key, e.target.value)} className={inputCls} />;
-    }
-    if (row.type === "number") {
-      return <input type="number" min={0} value={val == null ? "" : String(val)} onChange={(e) => setVal(row.key, e.target.value ? Number(e.target.value) : null)} className={inputCls} />;
-    }
-    return <input type="text" value={val == null ? "" : String(val)} onChange={(e) => setVal(row.key, e.target.value)} className={inputCls} />;
-  }
-
-  function renderViewCell(row: AuditRow) {
-    if (!audit) return "—";
-    const val = audit[row.key];
-    if (row.rangeWith) {
-      const min = displayVal(val);
-      const max = displayVal(audit[row.rangeWith]);
-      return `${min} s/d ${max}`;
-    }
-    return displayVal(val);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="relative w-full max-w-4xl rounded-xl bg-white dark:bg-dark-card shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="shrink-0 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none">✕</button>
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Audit Supplier</h2>
-          <div className="mt-2 flex gap-8 text-sm">
-            <div>
-              <span className="text-gray-500 dark:text-gray-400">Nama Supplier : </span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{supplier.supplierName}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 dark:text-gray-400">Tanggal Inspeksi : </span>
-              {editing ? (
-                <input type="date" value={editValues.tanggalInspeksi ? String(editValues.tanggalInspeksi).slice(0, 10) : ""} onChange={(e) => setVal("tanggalInspeksi", e.target.value)} className="inline rounded border border-gray-300 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100 px-2 py-0.5 text-sm" />
-              ) : (
-                <span className="font-medium text-gray-900 dark:text-gray-100">{audit?.tanggalInspeksi ? String(audit.tanggalInspeksi) : "—"}</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {loading && <div className="px-6 py-8 text-sm text-gray-400">Memuat audit…</div>}
-        {error && <div className="mx-6 mt-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">{error}</div>}
-        {saveMsg && <div className="mx-6 mt-4 rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300">{saveMsg}</div>}
-
-        {audit && (
-          <div className="flex-1 overflow-y-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-dark-section sticky top-0 z-10">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold text-gray-600 dark:text-gray-400 w-12 border-b border-gray-200 dark:border-gray-700">NO</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">ITEM INSPEKSI</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-gray-600 dark:text-gray-400 w-[280px] border-b border-gray-200 dark:border-gray-700">CATATAN</th>
-                </tr>
-              </thead>
-              <tbody>
-                {AUDIT_SECTIONS.map((sec) => (
-                  <Fragment key={`sec-${sec.code}`}>
-                    <tr className="bg-gray-100 dark:bg-dark-section/60">
-                      <td className="px-4 py-2 font-bold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">{sec.code}</td>
-                      <td colSpan={2} className="px-4 py-2 font-bold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">{sec.title}</td>
-                    </tr>
-                    {sec.rows.map((row, ri) => (
-                      <tr key={row.key} className="hover:bg-gray-50 dark:hover:bg-white/5">
-                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 text-center align-top">{ri + 1}.</td>
-                        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 align-top">{row.label}</td>
-                        <td className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 align-top">
-                          {editing ? renderEditCell(row) : (
-                            <span className="text-gray-900 dark:text-gray-100 font-medium">{renderViewCell(row)}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="shrink-0 flex justify-end gap-3 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
-          {editing ? (
-            <>
-              <button onClick={() => { setEditing(false); setEditValues({ ...audit! }); setError(null); }} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
-                Batal
-              </button>
-              <button onClick={handleSave} disabled={saving} className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-hover disabled:opacity-50">
-                {saving ? "Menyimpan…" : "Simpan Perubahan"}
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={onClose} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
-                Tutup
-              </button>
-              {audit && (
-                <button onClick={() => setEditing(true)} className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-hover inline-flex items-center gap-1.5">
-                  <HiOutlinePencilSquare className="h-4 w-4" /> Edit Audit
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ================================================================
    Shared components
