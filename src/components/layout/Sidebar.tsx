@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { HiOutlineChevronDown } from "react-icons/hi2";
-import { mainMenu, bottomMenu, type MenuItem } from "@/lib/menu";
+import { useAuth } from "@/context/AuthContext";
+import { mainMenu, bottomMenu, getMainMenuForRole, type MenuItem } from "@/lib/menu";
 
 interface SidebarProps {
   open: boolean;
@@ -21,6 +22,8 @@ export default function Sidebar({
   onToggleCollapse,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const menuItems = useMemo(() => getMainMenuForRole(user?.role), [user?.role]);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
   const matchesPath = useCallback((href?: string) => {
@@ -31,7 +34,7 @@ export default function Sidebar({
 
   // Auto-expand parent whose child matches the current path
   useEffect(() => {
-    mainMenu.forEach((item) => {
+    menuItems.forEach((item) => {
       if (
         item.children?.some((child) => matchesPath(child.href))
       ) {
@@ -40,7 +43,7 @@ export default function Sidebar({
         );
       }
     });
-  }, [matchesPath]);
+  }, [matchesPath, menuItems]);
 
   function toggleExpand(key: string) {
     setExpandedKeys((prev) =>
@@ -195,7 +198,7 @@ export default function Sidebar({
 
         {/* ── Main nav ────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <ul className="space-y-1">{mainMenu.map((item) => renderItem(item))}</ul>
+          <ul className="space-y-1">{menuItems.map((item) => renderItem(item))}</ul>
         </nav>
 
         {/* ── Bottom (Pengaturan) ──────────────────────── */}
