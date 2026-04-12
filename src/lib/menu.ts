@@ -73,13 +73,7 @@ export const mainMenu: MenuItem[] = [
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: [
-      {
-        key: "purchasing-inbound",
-        label: "Inbound Ikan",
-        href: "/inbound-ikan",
-      },
-    ],
+    children: [{ key: "purchasing-penerimaan", label: "Penerimaan Ikan", href: "/inbound-ikan" }],
   },
   {
     key: "cold-storage",
@@ -125,3 +119,64 @@ export const bottomMenu: MenuItem = {
   icon: HiOutlineCog6Tooth,
   href: "/settings",
 };
+
+const PENERIMAAN_IKAN_ITEM: MenuItem = {
+  key: "purchasing-penerimaan",
+  label: "Penerimaan Ikan",
+  href: "/inbound-ikan",
+};
+
+const RINGKASAN_SUPPLIER_ITEM: MenuItem = {
+  key: "purchasing-ringkasan",
+  label: "Ringkasan Supplier",
+  href: "/ringkasan-supplier",
+};
+
+/** Submenu Inbound Ikan: Ringkasan Supplier untuk Staf SBB, Superadmin, dan Kepala Cabang */
+function inboundPurchasingItem(role: string | undefined): MenuItem {
+  const showRingkasan =
+    role === "SBB_STAFF" || role === "SUPERADMIN" || role === "KEPALA_CABANG";
+  return {
+    key: "purchasing",
+    label: "Inbound Ikan",
+    icon: LuFish,
+    children: showRingkasan ? [PENERIMAAN_IKAN_ITEM, RINGKASAN_SUPPLIER_ITEM] : [PENERIMAAN_IKAN_ITEM],
+  };
+}
+
+function withInboundPurchasingMenu(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  return menu.map((it) => (it.key === "purchasing" ? inboundPurchasingItem(role) : it));
+}
+
+/** Hilangkan menu Master Data → Supplier kecuali Superadmin (master data supplier hanya via UI Superadmin). */
+function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  if (role === "SUPERADMIN") return menu;
+  return menu.map((item) => {
+    if (item.key !== "master-data" || !item.children?.length) return item;
+    return {
+      ...item,
+      children: item.children.filter((c) => c.key !== "md-supplier"),
+    };
+  });
+}
+
+/** Menu untuk Kepala Cabang: tanpa Master Data Supplier (gunakan Ringkasan Supplier) */
+export function getMainMenuForRole(role: string | undefined): MenuItem[] {
+  if (role === "KEPALA_CABANG") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      inboundPurchasingItem(role),
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  if (role === "SBB_STAFF") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      inboundPurchasingItem(role),
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  return withMasterDataSupplierMenuForRole(withInboundPurchasingMenu(mainMenu, role), role);
+}

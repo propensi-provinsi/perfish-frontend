@@ -34,12 +34,24 @@ export default function Navbar() {
           >
             Profile
           </Link>
-          {(user.role === "SBB_STAFF" || user.role === "SUPERADMIN") && (
+          {(user.role === "SBB_STAFF" ||
+            user.role === "SUPERADMIN" ||
+            user.role === "KEPALA_CABANG") && (
             <Link
               href="/inbound-ikan"
               className="text-sm text-gray-600 hover:text-gray-900"
             >
-              Inbound Ikan
+              Penerimaan Ikan
+            </Link>
+          )}
+          {(user.role === "SBB_STAFF" ||
+            user.role === "SUPERADMIN" ||
+            user.role === "KEPALA_CABANG") && (
+            <Link
+              href="/ringkasan-supplier"
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Ringkasan Supplier
             </Link>
           )}
           {user.role === "SUPERADMIN" && (

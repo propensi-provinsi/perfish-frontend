@@ -86,10 +86,10 @@ export interface FishSkuResponse extends AuditFields {
   packagingCode: string;
   packagingName: string;
   /** Physical specs */
-  minWeightKg: number;
-  maxWeightKg: number;
-  defaultShelfLifeDays: number;
-  defaultStorageTempC: number;
+  minWeightKg?: number | null;
+  maxWeightKg?: number | null;
+  defaultShelfLifeDays?: number | null;
+  defaultStorageTempC?: number | null;
   isActive: boolean;
 }
 
