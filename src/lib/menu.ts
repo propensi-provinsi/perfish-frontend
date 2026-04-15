@@ -24,6 +24,8 @@ export interface MenuItem {
   children?: MenuItem[];
 }
 
+export const AUDIT_TRAIL_ROLES = ["WAREHOUSE_ADMIN", "BOARD_DIRECTORS", "SUPERADMIN"] as const;
+
 export const mainMenu: MenuItem[] = [
   {
     key: "home",
@@ -160,6 +162,13 @@ function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | unde
   });
 }
 
+function withAuditTrailMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  if (role && AUDIT_TRAIL_ROLES.includes(role as (typeof AUDIT_TRAIL_ROLES)[number])) {
+    return menu;
+  }
+  return menu.filter((item) => item.key !== "audit-trail");
+}
+
 /** Menu untuk Kepala Cabang: tanpa Master Data Supplier (gunakan Ringkasan Supplier) */
 export function getMainMenuForRole(role: string | undefined): MenuItem[] {
   if (role === "KEPALA_CABANG") {
@@ -178,5 +187,8 @@ export function getMainMenuForRole(role: string | undefined): MenuItem[] {
       { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
     ];
   }
-  return withMasterDataSupplierMenuForRole(withInboundPurchasingMenu(mainMenu, role), role);
+  return withAuditTrailMenuForRole(
+    withMasterDataSupplierMenuForRole(withInboundPurchasingMenu(mainMenu, role), role),
+    role
+  );
 }

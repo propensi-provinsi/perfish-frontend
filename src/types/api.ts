@@ -127,3 +127,27 @@ export interface ExpiryNotificationListData {
   unreadCount: number;
   items: ExpiryNotificationItem[];
 }
+
+export interface AuditLogData {
+  id: string;
+  entityType: string;
+  entityId: string;
+  entityName: string | null;
+  fieldName: string;
+  oldValue: string | null;
+  newValue: string | null;
+  actionType: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  timestamp: string;
+}
+
+export interface AuditLogPageData {
+  content: AuditLogData[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  sort: string;
+}
