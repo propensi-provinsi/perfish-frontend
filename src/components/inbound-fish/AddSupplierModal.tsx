@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, type FormEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent } from "react";
 import apiClient from "@/lib/api";
 import {
   SUPPLIER_TYPES,
@@ -9,6 +9,8 @@ import {
   type CreateSupplierPayload,
   type SupplierAuditPayload,
   type SupplierAuditResponse,
+  type PaymentTermOption,
+  type CurrencyOption,
 } from "@/types";
 import { Field, ModalOverlay } from "./ModalPrimitives";
 const AUDIT_DEFAULTS: SupplierAuditPayload = {
@@ -217,6 +219,8 @@ export function AddSupplierModal({
     auditId: "",
     supplierName: "",
     supplierType: "Perusahaan",
+    paymentTermId: null,
+    currency: null,
     alamat: "",
     nomorKontak: "",
     nomorIdentitas: "",
@@ -225,6 +229,8 @@ export function AddSupplierModal({
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [auditFieldErrors, setAuditFieldErrors] = useState<Partial<Record<AuditFieldKey, string>>>({});
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
 
   const auditRangeError = getAuditRangeError(auditForm);
   const auditFilled = isAuditFilled(auditForm);
@@ -242,6 +248,22 @@ export function AddSupplierModal({
   const inputCls =
     "w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan dark:border-gray-600 dark:bg-dark-card";
 
+  useEffect(() => {
+    async function loadSupplierMasters() {
+      try {
+        const [termRes, currencyRes] = await Promise.all([
+          apiClient.get<ApiResponse<PaymentTermOption[]>>("/v1/master/payment-terms/active"),
+          apiClient.get<ApiResponse<CurrencyOption[]>>("/v1/master/currencies/active"),
+        ]);
+        setPaymentTerms(termRes.data.data ?? []);
+        setCurrencies(currencyRes.data.data ?? []);
+      } catch {
+        setError("Gagal memuat master payment term/currency.");
+      }
+    }
+    void loadSupplierMasters();
+  }, []);
+
   function setAudit<K extends keyof SupplierAuditPayload>(key: K, value: SupplierAuditPayload[K]) {
     setAuditForm((prev) => ({ ...prev, [key]: value }));
     setError(null);
@@ -253,7 +275,12 @@ export function AddSupplierModal({
   }
   function setSupplier(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
-    setSupplierForm((prev) => ({ ...prev, [name]: value }));
+    setSupplierForm((prev) => {
+      if (name === "paymentTermId" || name === "currency") {
+        return { ...prev, [name]: value === "" ? null : Number(value) };
+      }
+      return { ...prev, [name]: value };
+    });
     setError(null);
   }
 
@@ -374,6 +401,14 @@ export function AddSupplierModal({
   async function handleSubmitSupplier(e: FormEvent) {
     e.preventDefault();
     if (!supplierValid || !auditId) return;
+    if (supplierForm.paymentTermId == null) {
+      setError("Payment term wajib dipilih.");
+      return;
+    }
+    if (supplierForm.currency == null) {
+      setError("Currency wajib dipilih.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -583,6 +618,26 @@ export function AddSupplierModal({
               <select name="supplierType" value={supplierForm.supplierType} onChange={setSupplier} className={inputCls}>
                 {SUPPLIER_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payment Term">
+              <select name="paymentTermId" value={supplierForm.paymentTermId ?? ""} onChange={setSupplier} className={inputCls}>
+                <option value="">Pilih payment term</option>
+                {paymentTerms.map((term) => (
+                  <option key={term.paymentTermId} value={term.paymentTermId}>
+                    {term.termCode} - {term.termName} ({term.days} hari)
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Currency">
+              <select name="currency" value={supplierForm.currency ?? ""} onChange={setSupplier} className={inputCls}>
+                <option value="">Pilih currency</option>
+                {currencies.map((currency) => (
+                  <option key={currency.currencyId} value={currency.currencyId}>
+                    {currency.currencyCode} - {currency.currencyName}
+                  </option>
                 ))}
               </select>
             </Field>

@@ -8,8 +8,9 @@ import { AddSupplierModal } from "@/components/inbound-fish/AddSupplierModal";
 import { ViewSupplierAuditModal } from "@/components/suppliers/ViewSupplierAuditModal";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
-import type { ApiResponse, SupplierData } from "@/types";
+import type { ApiResponse, CurrencyOption, PaymentTermOption, SupplierData } from "@/types";
 import type { MasterSupplierApprovalStatus } from "@/types/supplier";
+import { actionBtn } from "@/lib/ui-action";
 
 type InboundReceipt = {
   id: string;
@@ -87,16 +88,19 @@ function RingkasanSupplierContent() {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [auditSupplier, setAuditSupplier] = useState<SupplierData | null>(null);
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const [toast, setToast] = useState<Toast>(null);
 
   const canEditApproval = user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
+  const canAddSupplier = user?.role === "SBB_STAFF" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [supRes, inRes] = await Promise.all([
         apiClient.get<ApiResponse<SupplierData[]>>("/v1/suppliers"),
-        apiClient.get<ApiResponse<InboundReceipt[]>>("/inbound-fish"),
+        apiClient.get<ApiResponse<InboundReceipt[]>>("/inbound-ikan"),
       ]);
       setSuppliers(supRes.data.data ?? []);
       setInbounds(inRes.data.data ?? []);
@@ -116,6 +120,31 @@ function RingkasanSupplierContent() {
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    async function loadSupplierMasters() {
+      try {
+        const [termRes, currencyRes] = await Promise.all([
+          apiClient.get<ApiResponse<PaymentTermOption[]>>("/v1/master/payment-terms/active"),
+          apiClient.get<ApiResponse<CurrencyOption[]>>("/v1/master/currencies/active"),
+        ]);
+        setPaymentTerms(termRes.data.data ?? []);
+        setCurrencies(currencyRes.data.data ?? []);
+      } catch {
+        setToast({ type: "error", message: "Gagal memuat master payment term/currency." });
+      }
+    }
+    void loadSupplierMasters();
+  }, []);
+
+  const paymentTermLabelById = useMemo(
+    () => new Map(paymentTerms.map((term) => [term.paymentTermId, term.termName])),
+    [paymentTerms]
+  );
+  const currencyLabelById = useMemo(
+    () => new Map(currencies.map((currency) => [currency.currencyId, currency.currencyName])),
+    [currencies]
+  );
 
   const rows = useMemo(() => {
     return suppliers.map((s) => {
@@ -188,13 +217,11 @@ function RingkasanSupplierContent() {
             Halaman ringkasan daftar supplier
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddSupplier(true)}
-          className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80"
-        >
-          + Tambah Supplier
-        </button>
+        {canAddSupplier && (
+          <button type="button" onClick={() => setShowAddSupplier(true)} className={actionBtn("primary")}>
+            + Tambah Supplier
+          </button>
+        )}
       </section>
 
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
@@ -293,12 +320,7 @@ function RingkasanSupplierContent() {
                       </td>
                       <td className="px-4 py-3">
                         {supplier.auditId ? (
-                          <button
-                            type="button"
-                            onClick={() => setAuditSupplier(supplier)}
-                            className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5"
-                            title="Lihat / edit audit supplier"
-                          >
+                          <button type="button" onClick={() => setAuditSupplier(supplier)} className={actionBtn("neutral", "xs")} title="Lihat / edit audit supplier">
                             <HiOutlineDocumentMagnifyingGlass className="h-4 w-4" />
                             Audit
                           </button>
@@ -307,14 +329,10 @@ function RingkasanSupplierContent() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setExpandedId(open ? null : supplier.id);
-                            if (!open) setMonthFilter(supplier.id, "");
-                          }}
-                          className="rounded-md border border-cyan/60 bg-cyan/10 px-2 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan/20 dark:text-cyan-200"
-                        >
+                        <button type="button" onClick={() => {
+                          setExpandedId(open ? null : supplier.id);
+                          if (!open) setMonthFilter(supplier.id, "");
+                        }} className={actionBtn("info", "xs")}>
                           {open ? "Sembunyikan" : "View More"}
                         </button>
                       </td>
@@ -335,6 +353,24 @@ function RingkasanSupplierContent() {
                               <div>
                                 <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Nomor identitas</span>
                                 <p className="mt-0.5 break-all">{supplier.nomorIdentitas?.trim() || "—"}</p>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Payment term</span>
+                                <p className="mt-0.5">
+                                  {supplier.paymentTermId != null
+                                    ? (paymentTermLabelById.get(supplier.paymentTermId) ?? "—")
+                                    : "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Currency</span>
+                                <p className="mt-0.5">
+                                  {supplier.currency != null
+                                    ? (currencyLabelById.get(supplier.currency) ?? "—")
+                                    : "—"}
+                                </p>
                               </div>
                             </div>
                           </div>
@@ -394,18 +430,28 @@ function RingkasanSupplierContent() {
                                     <td className="px-3 py-2">
                                       <span
                                         className={`inline-flex rounded-full px-2 py-0.5 font-medium ${
-                                          r.status === "PENDING"
-                                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                                            : r.status === "APPROVED"
-                                              ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
-                                              : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                          r.status === "DRAFT"
+                                            ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                            : r.status === "WEIGHING"
+                                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                                              : r.status === "QC_CHECK"
+                                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                                : r.status === "PENDING"
+                                                  ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                                  : r.status === "APPROVED"
+                                                  ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
+                                                  : r.status === "REJECTED"
+                                                    ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                                                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                                         }`}
                                       >
-                                        {r.status === "PENDING"
-                                          ? "Pending"
-                                          : r.status === "APPROVED"
-                                            ? "Disetujui"
-                                            : r.status}
+                                        {r.status === "DRAFT" ? "Draft"
+                                          : r.status === "WEIGHING" ? "Weighing"
+                                          : r.status === "QC_CHECK" ? "QC Check"
+                                          : r.status === "PENDING" ? "Pending"
+                                          : r.status === "APPROVED" ? "Approved"
+                                          : r.status === "REJECTED" ? "Rejected"
+                                          : r.status}
                                       </span>
                                     </td>
                                   </tr>
