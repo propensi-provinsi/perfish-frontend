@@ -122,9 +122,16 @@ export const bottomMenu: MenuItem = {
 
 const PENERIMAAN_IKAN_ITEM: MenuItem = {
   key: "purchasing-penerimaan",
-  label: "Penerimaan Ikan",
+  label: "Dashboard Penerimaan",
   href: "/inbound-ikan",
 };
+
+const PURCHASE_ORDER_ITEM: MenuItem = {
+  key: "purchasing-po",
+  label: "Purchase Order",
+  href: "/order-ikan/purchase-orders",
+};
+
 
 const RINGKASAN_SUPPLIER_ITEM: MenuItem = {
   key: "purchasing-ringkasan",
@@ -140,7 +147,9 @@ function inboundPurchasingItem(role: string | undefined): MenuItem {
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: showRingkasan ? [PENERIMAAN_IKAN_ITEM, RINGKASAN_SUPPLIER_ITEM] : [PENERIMAAN_IKAN_ITEM],
+    children: showRingkasan
+      ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM, RINGKASAN_SUPPLIER_ITEM]
+      : [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM],
   };
 }
 

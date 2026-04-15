@@ -15,7 +15,14 @@ import { ViewSupplierAuditModal } from "@/components/suppliers/ViewSupplierAudit
 import AppShell from "@/components/layout/AppShell";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
-import type { ApiResponse, SupplierAuditPayload, SupplierAuditResponse, SupplierData } from "@/types";
+import type {
+  ApiResponse,
+  CurrencyOption,
+  PaymentTermOption,
+  SupplierAuditPayload,
+  SupplierAuditResponse,
+  SupplierData,
+} from "@/types";
 import { SUPPLIER_TYPES, type MasterSupplierApprovalStatus } from "@/types/supplier";
 
 export default function SupplierMasterDataPage() {
@@ -47,6 +54,8 @@ function SuppliersContent() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<SupplierData | null>(null);
   const [viewAuditSupplier, setViewAuditSupplier] = useState<SupplierData | null>(null);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
 
   const [notif, setNotif] = useState<Notif | null>(null);
 
@@ -71,6 +80,22 @@ function SuppliersContent() {
   useEffect(() => {
     fetchSuppliers();
   }, [fetchSuppliers]);
+
+  useEffect(() => {
+    async function loadSupplierMasters() {
+      try {
+        const [termRes, currencyRes] = await Promise.all([
+          apiClient.get<ApiResponse<PaymentTermOption[]>>("/v1/master/payment-terms/active"),
+          apiClient.get<ApiResponse<CurrencyOption[]>>("/v1/master/currencies/active"),
+        ]);
+        setPaymentTerms(termRes.data.data ?? []);
+        setCurrencies(currencyRes.data.data ?? []);
+      } catch {
+        setNotif({ type: "error", message: "Gagal memuat master payment term/currency." });
+      }
+    }
+    void loadSupplierMasters();
+  }, []);
 
   const displayed = useMemo(() => {
     let rows = suppliers;
@@ -98,6 +123,15 @@ function SuppliersContent() {
 
     return rows;
   }, [suppliers, searchQuery, filterStatus, filterApproval, sortOrder]);
+
+  const paymentTermLabelById = useMemo(
+    () => new Map(paymentTerms.map((term) => [term.paymentTermId, term.termName])),
+    [paymentTerms]
+  );
+  const currencyLabelById = useMemo(
+    () => new Map(currencies.map((currency) => [currency.currencyId, currency.currencyName])),
+    [currencies]
+  );
 
   function getApprovalLabel(approvalStatus?: string) {
     if (approvalStatus === "APPROVED") return "Disetujui";
@@ -251,7 +285,7 @@ function SuppliersContent() {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-dark-section">
               <tr>
-                {["Kode", "Nama supplier", "Tipe", "Alamat", "Kontak", "Status", "Persetujuan", "Aksi"].map((h) => (
+                {["Kode", "Nama supplier", "Tipe", "Payment Term", "Currency", "Alamat", "Kontak", "Status", "Persetujuan", "Aksi"].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap"
@@ -264,7 +298,7 @@ function SuppliersContent() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {displayed.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={10} className="px-4 py-12 text-center text-sm text-gray-400">
                     {searchQuery || filterStatus || filterApproval
                       ? "Tidak ada supplier yang cocok."
                       : "Belum ada data supplier."}
@@ -280,6 +314,16 @@ function SuppliersContent() {
                       {s.supplierName}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{s.supplierType || "—"}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {s.paymentTermId != null
+                        ? (paymentTermLabelById.get(s.paymentTermId) ?? "—")
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {s.currency != null
+                        ? (currencyLabelById.get(s.currency) ?? "—")
+                        : "—"}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[180px] truncate">
                       {s.alamat || "—"}
                     </td>
@@ -354,12 +398,19 @@ function SuppliersContent() {
 
       {/* Modals */}
       {showAddModal && (
-        <AddSupplierFlow onClose={() => setShowAddModal(false)} onSuccess={handleCreated} />
+        <AddSupplierFlow
+          paymentTerms={paymentTerms}
+          currencies={currencies}
+          onClose={() => setShowAddModal(false)}
+          onSuccess={handleCreated}
+        />
       )}
       {editingSupplier && (
         <EditSupplierModal
           key={editingSupplier.id}
           supplier={editingSupplier}
+          paymentTerms={paymentTerms}
+          currencies={currencies}
           getActivationBlockedReason={getActivationBlockedReason}
           onClose={() => setEditingSupplier(null)}
           onSuccess={handleUpdated}
@@ -496,7 +547,17 @@ function isAuditFilled(f: SupplierAuditPayload): boolean {
 
 const AUDIT_DEFAULTS: SupplierAuditPayload = { tanggalInspeksi: new Date().toISOString().slice(0, 10) };
 
-function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function AddSupplierFlow({
+  paymentTerms,
+  currencies,
+  onClose,
+  onSuccess,
+}: {
+  paymentTerms: PaymentTermOption[];
+  currencies: CurrencyOption[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [step, setStep] = useState<1 | 2>(1);
   const [auditId, setAuditId] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -508,12 +569,13 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
   const [supplierForm, setSupplierForm] = useState({
     supplierName: "",
     supplierType: "Perusahaan",
+    paymentTermId: null as number | null,
+    currency: null as number | null,
     alamat: "",
     nomorKontak: "",
     nomorIdentitas: "",
   });
 
-  const auditRangeError = getAuditRangeError(auditForm);
   const auditFilled = isAuditFilled(auditForm);
   const supplierValid = supplierForm.supplierName.trim().length > 0 && auditId != null;
 
@@ -533,7 +595,13 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
     setAuditFieldErrors((prev) => { const next = { ...prev }; delete next[key as AuditFieldKey]; return next; });
   }
   function setSupplier(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    setSupplierForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setSupplierForm((prev) => {
+      if (name === "paymentTermId" || name === "currency") {
+        return { ...prev, [name]: value === "" ? null : Number(value) };
+      }
+      return { ...prev, [name]: value };
+    });
     setSupplierFieldErrors((prev) => { const next = { ...prev }; delete next[e.target.name]; return next; });
   }
 
@@ -626,6 +694,14 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
       setSupplierFieldErrors({ supplierName: "Nama supplier wajib diisi" });
       return;
     }
+    if (supplierForm.paymentTermId == null) {
+      setSupplierFieldErrors({ paymentTermId: "Payment term wajib dipilih" });
+      return;
+    }
+    if (supplierForm.currency == null) {
+      setSupplierFieldErrors({ currency: "Currency wajib dipilih" });
+      return;
+    }
     if (!auditId) return;
     setSubmitting(true);
     setSupplierFieldErrors({});
@@ -686,6 +762,26 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
                 ))}
               </select>
             </Field>
+            <Field label="Payment Term" error={supplierFieldErrors.paymentTermId}>
+              <select name="paymentTermId" value={supplierForm.paymentTermId ?? ""} onChange={setSupplier} className={supplierInputCls("paymentTermId")}>
+                <option value="">Pilih payment term</option>
+                {paymentTerms.map((term) => (
+                  <option key={term.paymentTermId} value={term.paymentTermId}>
+                    {term.termCode} - {term.termName} ({term.days} hari)
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Currency" error={supplierFieldErrors.currency}>
+              <select name="currency" value={supplierForm.currency ?? ""} onChange={setSupplier} className={supplierInputCls("currency")}>
+                <option value="">Pilih currency</option>
+                {currencies.map((currency) => (
+                  <option key={currency.currencyId} value={currency.currencyId}>
+                    {currency.currencyCode} - {currency.currencyName}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Alamat">
               <input name="alamat" value={supplierForm.alamat} onChange={setSupplier} placeholder="Alamat (maks. 255)" maxLength={255} className={inputCls} />
             </Field>
@@ -716,11 +812,15 @@ function AddSupplierFlow({ onClose, onSuccess }: { onClose: () => void; onSucces
 
 function EditSupplierModal({
   supplier,
+  paymentTerms,
+  currencies,
   getActivationBlockedReason,
   onClose,
   onSuccess,
 }: {
   supplier: SupplierData;
+  paymentTerms: PaymentTermOption[];
+  currencies: CurrencyOption[];
   getActivationBlockedReason: (s: SupplierData) => string | null;
   onClose: () => void;
   onSuccess: () => void;
@@ -728,6 +828,8 @@ function EditSupplierModal({
   const [form, setForm] = useState({
     supplierName: supplier.supplierName,
     supplierType: supplier.supplierType || "Perusahaan",
+    paymentTermId: supplier.paymentTermId ?? null,
+    currency: supplier.currency ?? null,
     alamat: supplier.alamat || "",
     nomorKontak: supplier.nomorKontak || "",
     nomorIdentitas: supplier.nomorIdentitas || "",
@@ -744,7 +846,13 @@ function EditSupplierModal({
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => {
+      if (name === "paymentTermId" || name === "currency") {
+        return { ...prev, [name]: value === "" ? null : Number(value) };
+      }
+      return { ...prev, [name]: value };
+    });
     setFieldErrors((prev) => { const next = { ...prev }; delete next[e.target.name]; return next; });
   }
 
@@ -752,6 +860,14 @@ function EditSupplierModal({
     e.preventDefault();
     if (!form.supplierName.trim()) {
       setFieldErrors({ supplierName: "Nama supplier wajib diisi" });
+      return;
+    }
+    if (form.paymentTermId == null) {
+      setFieldErrors({ paymentTermId: "Payment term wajib dipilih" });
+      return;
+    }
+    if (form.currency == null) {
+      setFieldErrors({ currency: "Currency wajib dipilih" });
       return;
     }
     if (active && !supplier.active) {
@@ -792,6 +908,26 @@ function EditSupplierModal({
           <select name="supplierType" value={form.supplierType} onChange={handleChange} className={inputCls("supplierType")}>
             {SUPPLIER_TYPES.map((t) => (
               <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Payment Term" error={fieldErrors.paymentTermId}>
+          <select name="paymentTermId" value={form.paymentTermId ?? ""} onChange={handleChange} className={inputCls("paymentTermId")}>
+            <option value="">Pilih payment term</option>
+            {paymentTerms.map((term) => (
+              <option key={term.paymentTermId} value={term.paymentTermId}>
+                {term.termCode} - {term.termName} ({term.days} hari)
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Currency" error={fieldErrors.currency}>
+          <select name="currency" value={form.currency ?? ""} onChange={handleChange} className={inputCls("currency")}>
+            <option value="">Pilih currency</option>
+            {currencies.map((currency) => (
+              <option key={currency.currencyId} value={currency.currencyId}>
+                {currency.currencyCode} - {currency.currencyName}
+              </option>
             ))}
           </select>
         </Field>
@@ -883,18 +1019,6 @@ function Field({
       </label>
       {children}
       {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
-    </div>
-  );
-}
-
-function FLabel({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-        {label}
-        {required && <span className="text-red ml-0.5">*</span>}
-      </label>
-      {children}
     </div>
   );
 }

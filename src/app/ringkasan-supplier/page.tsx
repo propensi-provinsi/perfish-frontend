@@ -8,7 +8,7 @@ import { AddSupplierModal } from "@/components/inbound-fish/AddSupplierModal";
 import { ViewSupplierAuditModal } from "@/components/suppliers/ViewSupplierAuditModal";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
-import type { ApiResponse, SupplierData } from "@/types";
+import type { ApiResponse, CurrencyOption, PaymentTermOption, SupplierData } from "@/types";
 import type { MasterSupplierApprovalStatus } from "@/types/supplier";
 
 type InboundReceipt = {
@@ -87,6 +87,8 @@ function RingkasanSupplierContent() {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [auditSupplier, setAuditSupplier] = useState<SupplierData | null>(null);
   const [updatingApprovalId, setUpdatingApprovalId] = useState<string | null>(null);
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const [toast, setToast] = useState<Toast>(null);
 
   const canEditApproval = user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
@@ -96,7 +98,7 @@ function RingkasanSupplierContent() {
     try {
       const [supRes, inRes] = await Promise.all([
         apiClient.get<ApiResponse<SupplierData[]>>("/v1/suppliers"),
-        apiClient.get<ApiResponse<InboundReceipt[]>>("/inbound-fish"),
+        apiClient.get<ApiResponse<InboundReceipt[]>>("/inbound-ikan"),
       ]);
       setSuppliers(supRes.data.data ?? []);
       setInbounds(inRes.data.data ?? []);
@@ -116,6 +118,31 @@ function RingkasanSupplierContent() {
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    async function loadSupplierMasters() {
+      try {
+        const [termRes, currencyRes] = await Promise.all([
+          apiClient.get<ApiResponse<PaymentTermOption[]>>("/v1/master/payment-terms/active"),
+          apiClient.get<ApiResponse<CurrencyOption[]>>("/v1/master/currencies/active"),
+        ]);
+        setPaymentTerms(termRes.data.data ?? []);
+        setCurrencies(currencyRes.data.data ?? []);
+      } catch {
+        setToast({ type: "error", message: "Gagal memuat master payment term/currency." });
+      }
+    }
+    void loadSupplierMasters();
+  }, []);
+
+  const paymentTermLabelById = useMemo(
+    () => new Map(paymentTerms.map((term) => [term.paymentTermId, term.termName])),
+    [paymentTerms]
+  );
+  const currencyLabelById = useMemo(
+    () => new Map(currencies.map((currency) => [currency.currencyId, currency.currencyName])),
+    [currencies]
+  );
 
   const rows = useMemo(() => {
     return suppliers.map((s) => {
@@ -337,6 +364,24 @@ function RingkasanSupplierContent() {
                                 <p className="mt-0.5 break-all">{supplier.nomorIdentitas?.trim() || "—"}</p>
                               </div>
                             </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Payment term</span>
+                                <p className="mt-0.5">
+                                  {supplier.paymentTermId != null
+                                    ? (paymentTermLabelById.get(supplier.paymentTermId) ?? "—")
+                                    : "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Currency</span>
+                                <p className="mt-0.5">
+                                  {supplier.currency != null
+                                    ? (currencyLabelById.get(supplier.currency) ?? "—")
+                                    : "—"}
+                                </p>
+                              </div>
+                            </div>
                           </div>
                           <div className="mb-4 flex flex-wrap items-end gap-3">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
@@ -394,18 +439,22 @@ function RingkasanSupplierContent() {
                                     <td className="px-3 py-2">
                                       <span
                                         className={`inline-flex rounded-full px-2 py-0.5 font-medium ${
-                                          r.status === "PENDING"
-                                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                                            : r.status === "APPROVED"
-                                              ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
-                                              : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                          r.status === "DRAFT"
+                                            ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                            : r.status === "WEIGHING"
+                                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                                              : r.status === "QC_CHECK"
+                                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                                : r.status === "COMPLETED"
+                                                  ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
+                                                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                                         }`}
                                       >
-                                        {r.status === "PENDING"
-                                          ? "Pending"
-                                          : r.status === "APPROVED"
-                                            ? "Disetujui"
-                                            : r.status}
+                                        {r.status === "DRAFT" ? "Draft"
+                                          : r.status === "WEIGHING" ? "Weighing"
+                                          : r.status === "QC_CHECK" ? "QC Check"
+                                          : r.status === "COMPLETED" ? "Selesai"
+                                          : r.status}
                                       </span>
                                     </td>
                                   </tr>
