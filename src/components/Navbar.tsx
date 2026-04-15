@@ -48,7 +48,7 @@ export default function Navbar() {
             user.role === "SUPERADMIN" ||
             user.role === "KEPALA_CABANG") && (
             <Link
-              href="/ringkasan-supplier"
+              href="/inbound-ikan/ringkasan-supplier"
               className="text-sm text-gray-600 hover:text-gray-900"
             >
               Ringkasan Supplier

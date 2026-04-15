@@ -8,6 +8,8 @@ export interface SupplierData {
   supplierCode: string;
   supplierName: string;
   supplierType: string;
+  paymentTermId?: number | null;
+  currency?: number | null;
   alamat: string;
   nomorKontak: string;
   nomorIdentitas: string;
@@ -24,6 +26,8 @@ export interface CreateSupplierPayload {
   auditId: string;
   supplierName: string;
   supplierType: string;
+  paymentTermId?: number | null;
+  currency?: number | null;
   alamat: string;
   nomorKontak: string;
   nomorIdentitas: string;
@@ -75,6 +79,21 @@ export interface MasterSupplierAuditResponse {
   id: string;
   tanggalInspeksi: string;
   [key: string]: unknown;
+}
+
+export interface PaymentTermOption {
+  paymentTermId: number;
+  termCode: string;
+  termName: string;
+  days: number;
+  isActive: boolean;
+}
+
+export interface CurrencyOption {
+  currencyId: number;
+  currencyCode: string;
+  currencyName: string;
+  isActive: boolean;
 }
 
 /** @deprecated Use MasterSupplierAuditResponse */

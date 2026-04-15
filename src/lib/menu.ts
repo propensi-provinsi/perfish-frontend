@@ -124,25 +124,36 @@ export const bottomMenu: MenuItem = {
 
 const PENERIMAAN_IKAN_ITEM: MenuItem = {
   key: "purchasing-penerimaan",
-  label: "Penerimaan Ikan",
+  label: "Dashboard Penerimaan",
   href: "/inbound-ikan",
+};
+
+const PURCHASE_ORDER_ITEM: MenuItem = {
+  key: "purchasing-po",
+  label: "Purchase Order",
+  href: "/inbound-ikan/purchase-orders",
 };
 
 const RINGKASAN_SUPPLIER_ITEM: MenuItem = {
   key: "purchasing-ringkasan",
   label: "Ringkasan Supplier",
-  href: "/ringkasan-supplier",
+  href: "/inbound-ikan/ringkasan-supplier",
 };
 
 /** Submenu Inbound Ikan: Ringkasan Supplier untuk Staf SBB, Superadmin, dan Kepala Cabang */
 function inboundPurchasingItem(role: string | undefined): MenuItem {
   const showRingkasan =
     role === "SBB_STAFF" || role === "SUPERADMIN" || role === "KEPALA_CABANG";
+  const canViewPo =
+    role === "SUPERADMIN" || role === "SBB_STAFF" || role === "KEPALA_CABANG" || role === "WAREHOUSE_STAFF";
+  const baseChildren = canViewPo ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM] : [PENERIMAAN_IKAN_ITEM];
   return {
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: showRingkasan ? [PENERIMAAN_IKAN_ITEM, RINGKASAN_SUPPLIER_ITEM] : [PENERIMAAN_IKAN_ITEM],
+    children: showRingkasan
+      ? [...baseChildren, RINGKASAN_SUPPLIER_ITEM]
+      : baseChildren,
   };
 }
 
