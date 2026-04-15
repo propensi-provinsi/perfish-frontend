@@ -13,10 +13,11 @@ import {
   palletize,
 } from "@/lib/inbound-api";
 import { QRCodeSVG } from "qrcode.react";
+import { actionBtn } from "@/lib/ui-action";
 
 export default function PalletizePage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={["WAREHOUSE_STAFF", "SUPERADMIN"]}>
       <AppShell>
         <PalletizeContent />
       </AppShell>
@@ -127,15 +128,15 @@ function PalletizeContent() {
   }
 
   if (!receipt) return <p className="p-8 text-center text-gray-500">Memuat…</p>;
-  if (receipt.status === "COMPLETED" && createdBatches.length === 0) {
+  if ((receipt.status === "PENDING" || receipt.status === "APPROVED" || receipt.status === "REJECTED") && createdBatches.length === 0) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Palletisasi Selesai</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Palletisasi Sudah Tercatat</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{receipt.batchCode} — {receipt.supplierName}</p>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">Penerimaan ini sudah selesai dan batch sudah dibuat.</p>
-        <button type="button" onClick={() => router.push("/inbound-ikan")} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">
+        <p className="text-sm text-gray-600 dark:text-gray-400">Penerimaan ini sudah dipalletisasi dan menunggu/selesai approval.</p>
+        <button type="button" onClick={() => router.push("/inbound-ikan")} className={actionBtn("neutral")}>
           Kembali ke Dashboard
         </button>
       </div>
@@ -192,10 +193,10 @@ function PalletizeContent() {
             ))}
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => router.push("/inbound-ikan")} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80">
+            <button type="button" onClick={() => router.push("/inbound-ikan")} className={actionBtn("primary")}>
               Kembali ke Dashboard
             </button>
-            <button type="button" onClick={() => window.print()} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">
+            <button type="button" onClick={() => window.print()} className={actionBtn("neutral")}>
               Cetak QR Code
             </button>
           </div>
@@ -273,10 +274,10 @@ function PalletizeContent() {
           })}
 
           <div className="flex gap-3">
-            <button type="button" onClick={() => router.push("/inbound-ikan")} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">
+            <button type="button" onClick={() => router.push("/inbound-ikan")} className={actionBtn("neutral")}>
               Kembali
             </button>
-            <button type="button" onClick={() => void handleSubmit()} disabled={!canSubmit || saving} className="flex-1 rounded-xl bg-green-600 px-6 py-3 text-base font-bold text-white hover:bg-green-700 disabled:opacity-50">
+            <button type="button" onClick={() => void handleSubmit()} disabled={!canSubmit || saving} className={`flex-1 ${actionBtn("success")}`}>
               {saving ? "Memproses…" : "Simpan & Buat Batch"}
             </button>
           </div>

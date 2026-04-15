@@ -20,7 +20,7 @@ function fmtKg(v: number | string | null | undefined): string {
 
 export default function InboundSummaryPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "WAREHOUSE_STAFF", "QC_SPECIALIST", "SUPERADMIN", "KEPALA_CABANG"]}>
       <AppShell>
         <InboundSummaryContent />
       </AppShell>

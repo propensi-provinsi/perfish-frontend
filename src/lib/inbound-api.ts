@@ -1,7 +1,7 @@
 import apiClient from "@/lib/api";
 import type { ApiResponse } from "@/types";
 
-export type InboundStatus = "DRAFT" | "WEIGHING" | "QC_CHECK" | "COMPLETED";
+export type InboundStatus = "DRAFT" | "WEIGHING" | "QC_CHECK" | "PENDING" | "APPROVED" | "REJECTED";
 
 export type InboundLineRow = {
   id: string;
@@ -37,6 +37,11 @@ export type InboundReceiptRow = {
   supplierDeliveryNote?: string | null;
   temperatureC?: number | null;
   createdAt: string;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedReason?: string | null;
   lines: InboundLineRow[];
 };
 
@@ -225,4 +230,14 @@ export async function updatePurchaseOrder(poId: number, payload: {
 
 export async function deletePurchaseOrder(poId: number) {
   await apiClient.delete(`/inbound-ikan/purchase-orders/${poId}`);
+}
+
+export async function approveInbound(id: string) {
+  const { data } = await apiClient.patch<ApiResponse<InboundReceiptRow>>(`/inbound-ikan/${id}/approve`);
+  return data.data;
+}
+
+export async function rejectInbound(id: string, reason: string) {
+  const { data } = await apiClient.patch<ApiResponse<InboundReceiptRow>>(`/inbound-ikan/${id}/reject`, { reason });
+  return data.data;
 }

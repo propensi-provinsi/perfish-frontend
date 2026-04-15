@@ -20,10 +20,11 @@ import {
   getAllPurchaseOrders,
   addLineToReceipt,
 } from "@/lib/inbound-api";
+import { actionBtn } from "@/lib/ui-action";
 
 export default function InboundTallyPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_STAFF", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={["WAREHOUSE_STAFF", "SUPERADMIN"]}>
       <AppShell>
         <InboundTallyContent />
       </AppShell>
@@ -247,15 +248,19 @@ function InboundTallyContent() {
     setShowAddSpecies(true);
     if (speciesList.length === 0) {
       try {
-        const { data: sp } = await apiClient.get<ApiResponse<FishSpeciesResponse[]>>("/master-data/fish-species");
+        const { data: sp } = await apiClient.get<ApiResponse<FishSpeciesResponse[]>>("/v1/master/fish/species");
         setSpeciesList(sp.data ?? []);
-      } catch { /* ignore */ }
+      } catch {
+        setMsg({ type: "error", text: "Gagal memuat daftar jenis ikan." });
+      }
     }
     if (formList.length === 0) {
       try {
-        const { data: fm } = await apiClient.get<ApiResponse<FishFormResponse[]>>("/master-data/fish-forms");
+        const { data: fm } = await apiClient.get<ApiResponse<FishFormResponse[]>>("/v1/master/fish/forms");
         setFormList(fm.data ?? []);
-      } catch { /* ignore */ }
+      } catch {
+        setMsg({ type: "error", text: "Gagal memuat daftar bentuk ikan." });
+      }
     }
   }
 
@@ -264,7 +269,7 @@ function InboundTallyContent() {
     if (!newSpeciesId || !newSize) return;
     setAddingLine(true);
     try {
-      await addLineToReceipt(receiptId, {
+      const updated = await addLineToReceipt(receiptId, {
         jenisIkan: Number(newSpeciesId),
         size: newSize.trim(),
         bentuk: newFormId ? formList.find((f) => f.formId === Number(newFormId))?.formName ?? "-" : "-",
@@ -275,7 +280,10 @@ function InboundTallyContent() {
       setNewFormId("");
       setNewSize("");
       setMsg({ type: "success", text: "Spesies baru ditambahkan." });
-      await loadReceipt();
+      setReceipt(updated);
+      const newest = updated.lines[updated.lines.length - 1];
+      if (newest?.id) setSelectedLineId(newest.id);
+      await loadSummary();
     } catch {
       setMsg({ type: "error", text: "Gagal menambahkan spesies." });
     } finally {
@@ -309,7 +317,7 @@ function InboundTallyContent() {
       {offlinePending.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 flex items-center justify-between">
           <span>{offlinePending.length} data timbangan tersimpan offline.</span>
-          <button type="button" disabled={syncing} onClick={() => void syncOfflineLogs()} className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+          <button type="button" disabled={syncing} onClick={() => void syncOfflineLogs()} className={actionBtn("warning", "xs")}>
             {syncing ? "Sinkronisasi…" : "Sinkronkan Sekarang"}
           </button>
         </div>
@@ -334,7 +342,7 @@ function InboundTallyContent() {
                   ))}
                 </select>
               </div>
-              <button type="button" onClick={() => void openAddSpeciesModal()} className="rounded-md border border-dashed border-cyan px-3 py-2.5 text-sm font-semibold text-cyan hover:bg-cyan/5 whitespace-nowrap">
+              <button type="button" onClick={() => void openAddSpeciesModal()} className={actionBtn("info", "sm")}>
                 + Spesies Baru
               </button>
             </div>
@@ -362,14 +370,14 @@ function InboundTallyContent() {
               <input type="number" step="0.001" min={0} value={tareWeight} onChange={(e) => setTareWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-3 text-lg font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
             </div>
           </div>
-          <button type="submit" disabled={saving || !selectedLineId} className="w-full rounded-md bg-cyan px-4 py-3 text-base font-semibold text-white hover:bg-cyan/80 disabled:opacity-50">
+          <button type="submit" disabled={saving || !selectedLineId} className={`w-full ${actionBtn("primary")}`}>
             {saving ? "Menyimpan..." : "Submit Timbangan"}
           </button>
         </form>
       )}
 
       {canFinish && (
-        <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className="w-full rounded-xl bg-amber-500 px-4 py-3 text-base font-bold text-white hover:bg-amber-600 disabled:opacity-50">
+        <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className={`w-full ${actionBtn("warning")}`}>
           {finishing ? "Memproses…" : "Selesai Timbang → Lanjut QC"}
         </button>
       )}
@@ -467,33 +475,61 @@ function InboundTallyContent() {
 
       {showAddSpecies && (
         <ModalOverlay onClose={() => setShowAddSpecies(false)}>
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-dark-card space-y-4">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Tambah Spesies Baru (Unplanned)</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Spesies ini tidak ada di PO. Akan ditambahkan ke daftar rincian ikan receipt ini.</p>
-            <form onSubmit={handleAddSpecies} className="space-y-3">
-              <Field label="Jenis Ikan">
-                <select value={newSpeciesId} onChange={(e) => setNewSpeciesId(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required>
-                  <option value="">Pilih jenis ikan</option>
-                  {speciesList.filter((s) => s.isActive).map((s) => (
-                    <option key={s.speciesId} value={s.speciesId}>{s.speciesCode} — {s.speciesName}</option>
-                  ))}
-                </select>
+          <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-dark-card">
+            <div className="mb-5 border-b border-gray-100 pb-4 dark:border-gray-700">
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Tambah Spesies Baru</h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Gunakan form ini jika ada jenis ikan di truk yang tidak ada di PO.
+              </p>
+            </div>
+            <form onSubmit={handleAddSpecies} className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Field label="Jenis Ikan" required>
+                  <select
+                    value={newSpeciesId}
+                    onChange={(e) => setNewSpeciesId(e.target.value)}
+                    className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-sm focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                    required
+                  >
+                    <option value="">Pilih jenis ikan</option>
+                    {speciesList.filter((s) => s.isActive).map((s) => (
+                      <option key={s.speciesId} value={s.speciesId}>{s.speciesCode} — {s.speciesName}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Bentuk (Form)">
+                  <select
+                    value={newFormId}
+                    onChange={(e) => setNewFormId(e.target.value)}
+                    className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-sm focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                  >
+                    <option value="">Pilih bentuk</option>
+                    {formList.filter((f) => f.isActive).map((f) => (
+                      <option key={f.formId} value={f.formId}>{f.formCode} — {f.formName}</option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Ukuran / Size" required>
+                <input
+                  type="text"
+                  value={newSize}
+                  onChange={(e) => setNewSize(e.target.value)}
+                  placeholder="contoh: 1-2 kg"
+                  className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm shadow-sm focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                  required
+                />
               </Field>
-              <Field label="Bentuk (Form)">
-                <select value={newFormId} onChange={(e) => setNewFormId(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
-                  <option value="">— Pilih bentuk —</option>
-                  {formList.filter((f) => f.isActive).map((f) => (
-                    <option key={f.formId} value={f.formId}>{f.formCode} — {f.formName}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Ukuran / Size">
-                <input type="text" value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="contoh: 1-2 kg" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
-              </Field>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowAddSpecies(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200">Batal</button>
-                <button type="submit" disabled={addingLine} className="rounded-md bg-cyan px-4 py-2 text-sm font-semibold text-white hover:bg-cyan/80 disabled:opacity-50">
-                  {addingLine ? "Menambahkan…" : "Tambah Spesies"}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddSpecies(false)} className={actionBtn("neutral")}>
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingLine || !newSpeciesId || !newSize.trim()}
+                  className={actionBtn("primary")}
+                >
+                  {addingLine ? "Menambahkan..." : "Tambah Spesies"}
                 </button>
               </div>
             </form>

@@ -13,6 +13,8 @@ import {
   updatePurchaseOrder,
   deletePurchaseOrder,
 } from "@/lib/inbound-api";
+import { useAuth } from "@/context/AuthContext";
+import { actionBtn } from "@/lib/ui-action";
 
 function fmtKg(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? Number(v) : v;
@@ -22,7 +24,7 @@ function fmtKg(v: number | string | null | undefined): string {
 
 export default function PurchaseOrdersPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_STAFF", "SUPERADMIN", "KEPALA_CABANG"]}>
       <AppShell>
         <PurchaseOrdersContent />
       </AppShell>
@@ -50,6 +52,8 @@ function formatDate(iso: string): string {
 }
 
 function PurchaseOrdersContent() {
+  const { user } = useAuth();
+  const canManagePo = user?.role === "SUPERADMIN" || user?.role === "SBB_STAFF" || user?.role === "KEPALA_CABANG";
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -99,10 +103,18 @@ function PurchaseOrdersContent() {
             Kelola pesanan pembelian ikan dari supplier. PO digunakan sebagai referensi saat registrasi penerimaan.
           </p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80">
-          + Buat Purchase Order
-        </button>
+        {canManagePo && (
+          <button onClick={() => setShowAdd(true)} className={actionBtn("primary")}>
+            + Buat Purchase Order
+          </button>
+        )}
       </section>
+
+      {!canManagePo && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
+          Mode lihat saja: role kamu hanya bisa melihat daftar PO tanpa tambah/edit/hapus.
+        </div>
+      )}
 
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
         <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
@@ -149,6 +161,7 @@ function PurchaseOrdersContent() {
                     }}
                     deletingPoId={deletingPoId}
                     setDeletingPoId={setDeletingPoId}
+                    canManagePo={canManagePo}
                   />
                 );
               })}
@@ -196,6 +209,7 @@ function PoTableRow({
   onDelete,
   deletingPoId,
   setDeletingPoId,
+  canManagePo,
 }: {
   po: PurchaseOrderRow;
   open: boolean;
@@ -204,8 +218,9 @@ function PoTableRow({
   onDelete: () => Promise<void>;
   deletingPoId: number | null;
   setDeletingPoId: (id: number | null) => void;
+  canManagePo: boolean;
 }) {
-  const canEditDelete = po.status === "OPEN";
+  const canEditDelete = canManagePo && po.status === "OPEN";
   return (
     <>
       <tr className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5">
@@ -225,21 +240,21 @@ function PoTableRow({
               type="button"
               onClick={onEdit}
               disabled={!canEditDelete}
-              className="rounded-md border border-cyan/60 bg-cyan/10 px-2 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed dark:text-cyan-200"
+              className={actionBtn("info", "xs")}
             >
               Edit
             </button>
-            {deletingPoId === po.poId ? (
+            {deletingPoId === po.poId && canManagePo ? (
               <>
-                <button type="button" onClick={() => void onDelete()} className="rounded-md border border-red-500/50 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-400/40 dark:bg-red-950/40 dark:text-red-200">Ya, Hapus</button>
-                <button type="button" onClick={() => setDeletingPoId(null)} className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200">Batal</button>
+                <button type="button" onClick={() => void onDelete()} className={actionBtn("danger", "xs")}>Ya, Hapus</button>
+                <button type="button" onClick={() => setDeletingPoId(null)} className={actionBtn("neutral", "xs")}>Batal</button>
               </>
             ) : (
               <button
                 type="button"
                 onClick={() => setDeletingPoId(po.poId)}
                 disabled={!canEditDelete}
-                className="rounded-md border border-red-500/50 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-400/40 dark:bg-red-950/40 dark:text-red-200"
+                className={actionBtn("danger", "xs")}
               >
                 Hapus
               </button>
@@ -422,7 +437,7 @@ function AddPOModal({
         <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Rincian Jenis Ikan <span className="text-red-500">*</span></p>
-            <button type="button" onClick={addLine} className="rounded-md border border-cyan/60 bg-cyan/10 px-3 py-1.5 text-sm font-medium text-cyan-800 dark:text-cyan-200 hover:bg-cyan/20">+</button>
+            <button type="button" onClick={addLine} className={actionBtn("info", "sm")}>+</button>
           </div>
           {lines.map((row, idx) => (
             <div key={row.key} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-white/5 p-3 space-y-3">
@@ -455,8 +470,8 @@ function AddPOModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5">Batal</button>
-          <button type="submit" disabled={!canSubmit || submitting} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed">{submitting ? "Menyimpan…" : submitLabel}</button>
+          <button type="button" onClick={onClose} className={actionBtn("neutral")}>Batal</button>
+          <button type="submit" disabled={!canSubmit || submitting} className={actionBtn("primary")}>{submitting ? "Menyimpan…" : submitLabel}</button>
         </div>
       </form>
     </ModalOverlay>

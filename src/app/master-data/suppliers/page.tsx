@@ -24,10 +24,11 @@ import type {
   SupplierData,
 } from "@/types";
 import { SUPPLIER_TYPES, type MasterSupplierApprovalStatus } from "@/types/supplier";
+import { actionBtn } from "@/lib/ui-action";
 
 export default function SupplierMasterDataPage() {
   return (
-    <ProtectedRoute allowedRoles={["SUPERADMIN"]}>
+    <ProtectedRoute allowedRoles={["SUPERADMIN", "SBB_STAFF", "KEPALA_CABANG"]}>
       <AppShell>
         <SuppliersContent />
       </AppShell>
@@ -168,7 +169,7 @@ function SuppliersContent() {
     }
   }
 
-  const canAddSupplier = user?.role === "SUPERADMIN" || user?.role === "KEPALA_CABANG";
+  const canAddSupplier = user?.role === "SUPERADMIN" || user?.role === "KEPALA_CABANG" || user?.role === "SBB_STAFF";
   const canEditApproval = user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
 
   function handleCreated() {
@@ -265,11 +266,7 @@ function SuppliersContent() {
         </div>
 
         {canAddSupplier && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white
-              hover:bg-cyan-hover active:scale-[0.98] transition-all shrink-0"
-          >
+          <button onClick={() => setShowAddModal(true)} className={actionBtn("primary")}>
             + Tambah Supplier
           </button>
         )}
@@ -370,19 +367,11 @@ function SuppliersContent() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
-                        <button
-                          onClick={() => setEditingSupplier(s)}
-                          title="Edit supplier"
-                          className="rounded-lg p-1.5 text-gray-400 hover:text-cyan hover:bg-cyan/10 transition-colors"
-                        >
+                        <button onClick={() => setEditingSupplier(s)} title="Edit supplier" className={actionBtn("info", "xs")}>
                           <HiOutlinePencilSquare className="h-4 w-4" />
                         </button>
                         {s.auditId && (
-                          <button
-                            onClick={() => setViewAuditSupplier(s)}
-                            title="Lihat audit"
-                            className="rounded-lg p-1.5 text-gray-400 hover:text-indigo-500 hover:bg-indigo-500/10 transition-colors"
-                          >
+                          <button onClick={() => setViewAuditSupplier(s)} title="Lihat audit" className={actionBtn("neutral", "xs")}>
                             <HiOutlineDocumentMagnifyingGlass className="h-4 w-4" />
                           </button>
                         )}
@@ -739,10 +728,10 @@ function AddSupplierFlow({
             )}
             <div className="flex flex-col items-end gap-2 pt-2">
               <div className="flex gap-3">
-                <button type="button" onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-white/5">
+                <button type="button" onClick={onClose} className={actionBtn("neutral")}>
                   Batal
                 </button>
-                <button type="submit" disabled={submitting} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" disabled={submitting} className={actionBtn("primary")}>
                   {submitting ? "Menyimpan…" : "Simpan Audit & Lanjut"}
                 </button>
               </div>
@@ -792,10 +781,10 @@ function AddSupplierFlow({
               <input name="nomorIdentitas" value={supplierForm.nomorIdentitas} onChange={setSupplier} placeholder="Maks. 100, unik" maxLength={100} className={inputCls} />
             </Field>
             <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setStep(1)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-white/5">
+              <button type="button" onClick={() => setStep(1)} className={actionBtn("neutral")}>
                 Kembali
               </button>
-              <button type="submit" disabled={!supplierValid || submitting} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed">
+              <button type="submit" disabled={!supplierValid || submitting} className={actionBtn("primary")}>
                 {submitting ? "Menyimpan…" : "Simpan Supplier"}
               </button>
             </div>
@@ -970,10 +959,10 @@ function EditSupplierModal({
           {fieldErrors._status && <p className="mt-2 text-sm text-red-500">{fieldErrors._status}</p>}
         </div>
         <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
+          <button type="button" onClick={onClose} className={actionBtn("neutral")}>
             Batal
           </button>
-          <button type="submit" disabled={submitting} className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-hover disabled:opacity-50">
+          <button type="submit" disabled={submitting} className={actionBtn("primary")}>
             {submitting ? "Menyimpan…" : "Simpan Perubahan"}
           </button>
         </div>

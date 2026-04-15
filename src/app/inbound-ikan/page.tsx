@@ -6,7 +6,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
 import apiClient from "@/lib/api";
-import type { ApiResponse } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+import type { ApiResponse, SupplierData } from "@/types";
 import {
   type FishGradeResponse,
   type FishSkuResponse,
@@ -15,10 +16,14 @@ import {
 import {
   type InboundStatus,
   type PurchaseOrderRow,
+  getInboundReceipts,
   getOpenPurchaseOrders,
   getWeighingSummary,
   submitQcInspection,
+  approveInbound,
+  rejectInbound,
 } from "@/lib/inbound-api";
+import { actionBtn } from "@/lib/ui-action";
 
 type MasterRejectReasonResponse = {
   rejectReasonId: number;
@@ -29,7 +34,7 @@ type MasterRejectReasonResponse = {
 
 export default function InboundIkanPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "WAREHOUSE_STAFF", "QC_SPECIALIST", "SUPERADMIN", "KEPALA_CABANG"]}>
       <AppShell>
         <InboundIkanContent />
       </AppShell>
@@ -68,6 +73,11 @@ type InboundFishRow = {
   coldStorageLabel: string;
   tanggalPenerimaan: string;
   createdAt: string;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedReason?: string | null;
   poCode?: string | null;
   lines: InboundFishLineRow[];
 };
@@ -97,7 +107,9 @@ const STATUS_CONFIG: Record<InboundStatus, { label: string; cls: string }> = {
   DRAFT: { label: "Draft", cls: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
   WEIGHING: { label: "Weighing", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
   QC_CHECK: { label: "QC Check", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
-  COMPLETED: { label: "Selesai", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
+  PENDING: { label: "Pending", cls: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200" },
+  APPROVED: { label: "Approved", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
+  REJECTED: { label: "Rejected", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
 };
 
 function StatusBadge({ status }: { status: InboundStatus }) {
@@ -106,19 +118,33 @@ function StatusBadge({ status }: { status: InboundStatus }) {
 }
 
 function InboundIkanContent() {
+  const { user } = useAuth();
   const [inboundRows, setInboundRows] = useState<InboundFishRow[]>([]);
   const [loadingReceivings, setLoadingReceivings] = useState(false);
   const [showAddPenerimaan, setShowAddPenerimaan] = useState(false);
   const [toast, setToast] = useState<InboundToast>(null);
+  const [rejectingRow, setRejectingRow] = useState<InboundFishRow | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [supplierOptions, setSupplierOptions] = useState<SupplierData[]>([]);
+  const [filterStatus, setFilterStatus] = useState<InboundStatus | "">("");
+  const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
 
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
   const fetchInboundFish = useCallback(async () => {
     setLoadingReceivings(true);
     try {
-      const { data } = await apiClient.get<ApiResponse<InboundFishRow[]>>("/inbound-ikan");
+      const list = await getInboundReceipts({
+        status: filterStatus || undefined,
+        supplierId: filterSupplierId || undefined,
+        startDate: filterStartDate || undefined,
+        endDate: filterEndDate || undefined,
+      });
       setInboundRows(
-        (data.data ?? []).map((r) => ({
+        (list ?? []).map((r) => ({
           ...r,
           supplierId: r.supplierId ?? "",
           lines: (r.lines ?? []).map((ln) => ({ ...ln })),
@@ -126,17 +152,33 @@ function InboundIkanContent() {
       );
     } catch { /* interceptor */ }
     finally { setLoadingReceivings(false); }
-  }, []);
+  }, [filterStatus, filterSupplierId, filterStartDate, filterEndDate]);
 
   useEffect(() => { queueMicrotask(() => { void fetchInboundFish(); }); }, [fetchInboundFish]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await apiClient.get<ApiResponse<SupplierData[]>>("/v1/suppliers/active");
+        setSupplierOptions(data.data ?? []);
+      } catch {
+        setSupplierOptions([]);
+      }
+    })();
+  }, []);
 
   const draftCount = inboundRows.filter((r) => r.status === "DRAFT").length;
   const weighingCount = inboundRows.filter((r) => r.status === "WEIGHING").length;
   const qcCount = inboundRows.filter((r) => r.status === "QC_CHECK").length;
-  const completedCount = inboundRows.filter((r) => r.status === "COMPLETED").length;
+  const pendingCount = inboundRows.filter((r) => r.status === "PENDING").length;
+  const approvedCount = inboundRows.filter((r) => r.status === "APPROVED").length;
+  const rejectedCount = inboundRows.filter((r) => r.status === "REJECTED").length;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [qcRow, setQcRow] = useState<InboundFishRow | null>(null);
+  const canCreateReceiving = user?.role === "WAREHOUSE_STAFF" || user?.role === "SUPERADMIN";
+  const canWeighPallet = user?.role === "WAREHOUSE_STAFF" || user?.role === "SUPERADMIN";
+  const canQc = user?.role === "QC_SPECIALIST" || user?.role === "SUPERADMIN";
+  const canApproveReject = user?.role === "WAREHOUSE_ADMIN" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
 
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -144,6 +186,37 @@ function InboundIkanContent() {
 
   function qcIsDone(row: InboundFishRow): boolean {
     return row.lines.length > 0 && row.lines.every((l) => l.qcGradeId != null);
+  }
+
+  async function handleApprove(rowId: string) {
+    setActionLoadingId(rowId);
+    try {
+      await approveInbound(rowId);
+      setToast({ type: "success", message: "Penerimaan berhasil di-approve." });
+      await fetchInboundFish();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal approve penerimaan." });
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleReject() {
+    if (!rejectingRow || !rejectReason.trim()) return;
+    setActionLoadingId(rejectingRow.id);
+    try {
+      await rejectInbound(rejectingRow.id, rejectReason.trim());
+      setToast({ type: "success", message: "Penerimaan berhasil di-reject." });
+      setRejectingRow(null);
+      setRejectReason("");
+      await fetchInboundFish();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal reject penerimaan." });
+    } finally {
+      setActionLoadingId(null);
+    }
   }
 
   return (
@@ -163,18 +236,59 @@ function InboundIkanContent() {
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
-          <button onClick={() => setShowAddPenerimaan(true)} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80">
-            + Catat Penerimaan
+          {canCreateReceiving && (
+            <button onClick={() => setShowAddPenerimaan(true)} className={actionBtn("primary")}>
+              + Catat Penerimaan
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Filter histori dan monitoring penerimaan (real-time).
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterStatus("");
+              setFilterSupplierId("");
+              setFilterStartDate("");
+              setFilterEndDate("");
+            }}
+            className={actionBtn("neutral", "xs")}
+          >
+            Reset Filter
           </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as InboundStatus | "")} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
+            <option value="">Semua Status</option>
+            <option value="DRAFT">Draft</option>
+            <option value="WEIGHING">Weighing</option>
+            <option value="QC_CHECK">QC Check</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+          <select value={filterSupplierId} onChange={(e) => setFilterSupplierId(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
+            <option value="">Semua Supplier</option>
+            {supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.supplierName}</option>)}
+          </select>
+          <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" />
+          <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" />
         </div>
       </section>
 
       <section>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <SummaryCard label="Draft" value={loadingReceivings ? "…" : String(draftCount)} />
           <SummaryCard label="Weighing" value={loadingReceivings ? "…" : String(weighingCount)} />
           <SummaryCard label="QC Check" value={loadingReceivings ? "…" : String(qcCount)} />
-          <SummaryCard label="Selesai" value={loadingReceivings ? "…" : String(completedCount)} />
+          <SummaryCard label="Pending" value={loadingReceivings ? "…" : String(pendingCount)} />
+          <SummaryCard label="Approved" value={loadingReceivings ? "…" : String(approvedCount)} />
+          <SummaryCard label="Rejected" value={loadingReceivings ? "…" : String(rejectedCount)} />
         </div>
       </section>
 
@@ -189,7 +303,7 @@ function InboundIkanContent() {
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/5 text-left text-gray-600 dark:text-gray-400">
                 <th className="px-2 py-3 w-10 font-medium" aria-label="Expand" />
                 <th className="px-4 py-3 font-medium">Kode Penerimaan</th>
-                <th className="px-4 py-3 font-medium">PO</th>
+                <th className="px-4 py-3 font-medium">Kode PO</th>
                 <th className="px-4 py-3 font-medium">Supplier</th>
                 <th className="px-4 py-3 font-medium">Gudang</th>
                 <th className="px-4 py-3 font-medium">Tanggal</th>
@@ -220,23 +334,43 @@ function InboundIkanContent() {
                       <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
                       <td className="px-4 py-3">
                         <div className="inline-flex gap-2 flex-wrap">
-                          {(row.status === "DRAFT" || row.status === "WEIGHING") && (
-                            <Link href={`/inbound-ikan/tally/${row.id}`} className="rounded-md border border-cyan/60 bg-cyan/10 px-2 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan/20 dark:text-cyan-200">
+                          {canWeighPallet && (row.status === "DRAFT" || row.status === "WEIGHING") && (
+                            <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
                               {row.status === "DRAFT" ? "Mulai Tally" : "Lanjut Tally"}
                             </Link>
                           )}
-                          {row.status === "QC_CHECK" && !done && (
-                            <button type="button" onClick={() => setQcRow(row)} className="rounded-md border border-violet-500/50 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 dark:border-violet-400/40 dark:bg-violet-950/40 dark:text-violet-200">
+                          {canQc && row.status === "QC_CHECK" && !done && (
+                            <button type="button" onClick={() => setQcRow(row)} className={actionBtn("warning", "xs")}>
                               Inspeksi QC
                             </button>
                           )}
-                          {row.status === "QC_CHECK" && done && (
-                            <Link href={`/inbound-ikan/palletize/${row.id}`} className="rounded-md border border-green-500/50 bg-green-50 px-2 py-1 text-xs font-medium text-green-900 hover:bg-green-100 dark:border-green-400/40 dark:bg-green-950/40 dark:text-green-200">
+                          {canWeighPallet && row.status === "QC_CHECK" && done && (
+                            <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
                               Palletisasi
                             </Link>
                           )}
-                          {row.status === "COMPLETED" && (
-                            <Link href={`/inbound-ikan/summary/${row.id}`} className="rounded-md border border-gray-300/80 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                          {canApproveReject && row.status === "PENDING" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void handleApprove(row.id)}
+                                disabled={actionLoadingId === row.id}
+                                className={actionBtn("success", "xs")}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRejectingRow(row)}
+                                disabled={actionLoadingId === row.id}
+                                className={actionBtn("danger", "xs")}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {(row.status === "APPROVED" || row.status === "REJECTED" || row.status === "PENDING") && (
+                            <Link href={`/inbound-ikan/summary/${row.id}`} className={actionBtn("ghost", "xs")}>
                               Lihat Detail
                             </Link>
                           )}
@@ -314,6 +448,44 @@ function InboundIkanContent() {
           }}
           onError={(msg) => setToast({ type: "error", message: msg })}
         />
+      )}
+
+      {rejectingRow && (
+        <ModalOverlay onClose={() => setRejectingRow(null)}>
+          <div className="w-full max-w-xl rounded-2xl border border-red-100 bg-white p-6 shadow-2xl dark:border-red-900/50 dark:bg-dark-card space-y-5">
+            <div className="border-b border-red-100 pb-3 dark:border-red-900/40">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">Reject Penerimaan</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Kode penerimaan <span className="font-mono font-semibold">{rejectingRow.batchCode}</span> akan ditandai rejected dan batch menjadi blocked.
+              </p>
+            </div>
+            <Field label="Alasan Reject" required>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={4}
+                maxLength={255}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                placeholder="contoh: dokumen tidak valid / hasil tidak sesuai"
+                required
+              />
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                {rejectReason.length}/255 karakter
+              </p>
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setRejectingRow(null)} className={actionBtn("neutral")}>Batal</button>
+              <button
+                type="button"
+                onClick={() => void handleReject()}
+                disabled={!rejectReason.trim() || actionLoadingId === rejectingRow.id}
+                className={actionBtn("danger")}
+              >
+                {actionLoadingId === rejectingRow.id ? "Menyimpan..." : "Reject"}
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -458,8 +630,8 @@ function AddPenerimaanModal({
         </Field>
 
         <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5">Batal</button>
-          <button type="submit" disabled={!canSubmit || submitting} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed">{submitting ? "Menyimpan…" : "Submit Penerimaan"}</button>
+          <button type="button" onClick={onClose} className={actionBtn("neutral")}>Batal</button>
+          <button type="submit" disabled={!canSubmit || submitting} className={actionBtn("primary")}>{submitting ? "Menyimpan…" : "Submit Penerimaan"}</button>
         </div>
       </form>
     </ModalOverlay>
@@ -683,8 +855,8 @@ function QcModal({ row, onClose, onSuccess, onError }: { row: InboundFishRow; on
         })}
 
         <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5">Batal</button>
-          <button type="submit" disabled={!cekMutuValid || submitting} className="rounded-md bg-cyan px-4 py-2 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50 disabled:cursor-not-allowed">{submitting ? "Menyimpan…" : "Simpan"}</button>
+          <button type="button" onClick={onClose} className={actionBtn("neutral")}>Batal</button>
+          <button type="submit" disabled={!cekMutuValid || submitting} className={actionBtn("primary")}>{submitting ? "Menyimpan…" : "Simpan"}</button>
         </div>
       </form>
 
@@ -694,8 +866,8 @@ function QcModal({ row, onClose, onSuccess, onError }: { row: InboundFishRow; on
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Ubah inspeksi QC?</h3>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Data QC sudah pernah diisi. Yakin mengubah?</p>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5" onClick={() => setEditConfirmOpen(false)} disabled={submitting}>Batal</button>
-              <button type="button" className="rounded-md bg-cyan px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan/80 disabled:opacity-50" disabled={submitting} onClick={() => void postCekMutu()}>{submitting ? "Menyimpan…" : "Ya, ubah"}</button>
+              <button type="button" className={actionBtn("neutral", "sm")} onClick={() => setEditConfirmOpen(false)} disabled={submitting}>Batal</button>
+              <button type="button" className={actionBtn("primary", "sm")} disabled={submitting} onClick={() => void postCekMutu()}>{submitting ? "Menyimpan…" : "Ya, ubah"}</button>
             </div>
           </div>
         </div>
