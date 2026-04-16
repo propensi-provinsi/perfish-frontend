@@ -3,6 +3,7 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { useAuth } from "@/context/AuthContext";
+import { AUDIT_TRAIL_ROLES } from "@/lib/menu";
 import {
   HiOutlineChartBarSquare,
   HiOutlineClipboardDocumentList,
@@ -20,6 +21,7 @@ interface QuickCard {
   icon: IconType;
   href: string;
   color: string;
+  allowedRoles?: string[];
 }
 
 const quickCards: QuickCard[] = [
@@ -52,7 +54,7 @@ const quickCards: QuickCard[] = [
     color: "bg-red/10 text-red",
   },
   {
-    label: "Inbound Ikan",
+    label: "Penerimaan Ikan",
     description: "Catat penerimaan ikan dari supplier",
     icon: LuFish,
     href: "/inbound-ikan",
@@ -85,6 +87,7 @@ const quickCards: QuickCard[] = [
     icon: HiOutlineMagnifyingGlass,
     href: "/audit-trail",
     color: "bg-yellow/10 text-yellow",
+    allowedRoles: [...AUDIT_TRAIL_ROLES],
   },
   {
     label: "Laporan",
@@ -127,7 +130,9 @@ function HomeContent() {
           Menu Utama
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {quickCards.map((card) => {
+          {quickCards
+            .filter((card) => !card.allowedRoles || (user?.role ? card.allowedRoles.includes(user.role) : false))
+            .map((card) => {
             const Icon = card.icon;
             return (
               <a

@@ -24,6 +24,8 @@ export interface MenuItem {
   children?: MenuItem[];
 }
 
+export const AUDIT_TRAIL_ROLES = ["WAREHOUSE_ADMIN", "BOARD_DIRECTORS", "SUPERADMIN"] as const;
+
 export const mainMenu: MenuItem[] = [
   {
     key: "home",
@@ -73,13 +75,7 @@ export const mainMenu: MenuItem[] = [
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: [
-      {
-        key: "purchasing-inbound",
-        label: "Inbound Ikan",
-        href: "/inbound-ikan",
-      },
-    ],
+    children: [{ key: "purchasing-penerimaan", label: "Penerimaan Ikan", href: "/inbound-ikan" }],
   },
   {
     key: "cold-storage",
@@ -144,3 +140,85 @@ export const bottomMenu: MenuItem = {
   icon: HiOutlineCog6Tooth,
   href: "/settings",
 };
+
+const PENERIMAAN_IKAN_ITEM: MenuItem = {
+  key: "purchasing-penerimaan",
+  label: "Dashboard Penerimaan",
+  href: "/inbound-ikan",
+};
+
+const PURCHASE_ORDER_ITEM: MenuItem = {
+  key: "purchasing-po",
+  label: "Purchase Order",
+  href: "/inbound-ikan/purchase-orders",
+};
+
+const RINGKASAN_SUPPLIER_ITEM: MenuItem = {
+  key: "purchasing-ringkasan",
+  label: "Ringkasan Supplier",
+  href: "/inbound-ikan/ringkasan-supplier",
+};
+
+/** Submenu Inbound Ikan: Ringkasan Supplier untuk Staf SBB, Superadmin, dan Kepala Cabang */
+function inboundPurchasingItem(role: string | undefined): MenuItem {
+  const showRingkasan =
+    role === "SBB_STAFF" || role === "SUPERADMIN" || role === "KEPALA_CABANG";
+  const canViewPo =
+    role === "SUPERADMIN" || role === "SBB_STAFF" || role === "KEPALA_CABANG" || role === "WAREHOUSE_STAFF";
+  const baseChildren = canViewPo ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM] : [PENERIMAAN_IKAN_ITEM];
+  return {
+    key: "purchasing",
+    label: "Inbound Ikan",
+    icon: LuFish,
+    children: showRingkasan
+      ? [...baseChildren, RINGKASAN_SUPPLIER_ITEM]
+      : baseChildren,
+  };
+}
+
+function withInboundPurchasingMenu(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  return menu.map((it) => (it.key === "purchasing" ? inboundPurchasingItem(role) : it));
+}
+
+/** Hilangkan menu Master Data → Supplier kecuali Superadmin (master data supplier hanya via UI Superadmin). */
+function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  if (role === "SUPERADMIN") return menu;
+  return menu.map((item) => {
+    if (item.key !== "master-data" || !item.children?.length) return item;
+    return {
+      ...item,
+      children: item.children.filter((c) => c.key !== "md-supplier"),
+    };
+  });
+}
+
+function withAuditTrailMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  if (role && AUDIT_TRAIL_ROLES.includes(role as (typeof AUDIT_TRAIL_ROLES)[number])) {
+    return menu;
+  }
+  return menu.filter((item) => item.key !== "audit-trail");
+}
+
+/** Menu untuk Kepala Cabang: tanpa Master Data Supplier (gunakan Ringkasan Supplier) */
+export function getMainMenuForRole(role: string | undefined): MenuItem[] {
+  if (role === "KEPALA_CABANG") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      inboundPurchasingItem(role),
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  if (role === "SBB_STAFF") {
+    return [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      inboundPurchasingItem(role),
+      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+    ];
+  }
+  return withAuditTrailMenuForRole(
+    withMasterDataSupplierMenuForRole(withInboundPurchasingMenu(mainMenu, role), role),
+    role
+  );
+}
