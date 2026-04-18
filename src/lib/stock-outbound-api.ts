@@ -13,7 +13,6 @@ import type {
   DistributionHistory,
   ExportReadiness,
   FefoBatchStock,
-  PalletStock,
   PdfUploadResponse,
   SalesOrderOutboundSummary,
   Shipment,
@@ -21,6 +20,7 @@ import type {
   ShipmentDocumentPayload,
   ShipmentStatus,
   TransportModeOption,
+  UpdateShipmentDetailsPayload,
 } from "@/types/stock-outbound";
 
 const soBase = "/v1/so";
@@ -33,16 +33,14 @@ export const stockOutboundApi = {
   allocateStock: (soId: number, payload?: AllocateStockPayload) =>
     apiClient.post<ApiResponse<AllocationSummary>>(`${soBase}/${soId}/allocate`, payload ?? { autoAllocate: true }),
 
+  deallocateStock: (soId: number, allocationId: number) =>
+    apiClient.delete<ApiResponse<AllocationSummary>>(`${soBase}/${soId}/allocation/${allocationId}`),
+
   getAllocationSummary: (soId: number) =>
     apiClient.get<ApiResponse<AllocationSummary>>(`${soBase}/${soId}/allocation`),
 
   getFefoBatches: (search = "") =>
     apiClient.get<ApiResponse<FefoBatchStock[]>>("/v1/batch/master-batches", {
-      params: { search },
-    }),
-
-  getPallets: (search = "") =>
-    apiClient.get<ApiResponse<PalletStock[]>>("/v1/batch/pallets", {
       params: { search },
     }),
 
@@ -64,8 +62,11 @@ export const stockOutboundApi = {
   createShipment: (payload: CreateShipmentPayload) =>
     apiClient.post<ApiResponse<Shipment>>(shipmentBase, payload),
 
-  updateShipmentStatus: (shipmentId: number, payload: { status: ShipmentStatus; note?: string }) =>
+  updateShipmentStatus: (shipmentId: number, payload: { status: ShipmentStatus; note?: string; qrCode?: string }) =>
     apiClient.put<ApiResponse<Shipment>>(`${shipmentBase}/${shipmentId}/status`, payload),
+
+  updateShipmentDetails: (shipmentId: number, payload: UpdateShipmentDetailsPayload) =>
+    apiClient.put<ApiResponse<Shipment>>(`${shipmentBase}/${shipmentId}/details`, payload),
 
   getShipmentDocuments: (shipmentId: number) =>
     apiClient.get<ApiResponse<ShipmentDocumentChecklist>>(`${shipmentBase}/${shipmentId}/documents`),

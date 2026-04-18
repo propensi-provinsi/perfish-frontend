@@ -29,5 +29,10 @@ export function normalizeStatus(value: string | null | undefined) {
 
 export function isOpenSalesOrderStatus(value: string | null | undefined) {
   const normalized = normalizeStatus(value);
-  return normalized === "OPEN" || normalized === "ACTIVE";
+  return (
+    normalized === "OPEN" ||
+    normalized === "ACTIVE" ||
+    normalized === "DELIVERY_ORDER" ||
+    normalized === "CREATED_DELIVERY_ORDER"
+  );
 }

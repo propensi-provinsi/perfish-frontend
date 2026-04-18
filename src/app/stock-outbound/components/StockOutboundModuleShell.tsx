@@ -19,7 +19,7 @@ const tabs = [
   },
   {
     href: "/stock-outbound/alokasi-pallet",
-    label: "Data Pallet Alokasi",
+    label: "Data Batch Alokasi",
   },
   {
     href: "/stock-outbound/transaksi-fefo",

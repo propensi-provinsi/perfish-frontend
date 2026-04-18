@@ -2,7 +2,14 @@ import type { ApiResponse } from "./api";
 
 export type AllocationStatus = "ALLOCATED" | "DISPATCHED" | "DELIVERED" | "CANCELLED";
 
-export type ShipmentStatus = "PICKING" | "CHECKING" | "LOADING" | "DISPATCHED" | "DELIVERED";
+export type ShipmentStatus =
+  | "ALLOCATED"
+  | "OUTBOUND"
+  | "LOADING"
+  | "DISPATCHED"
+  | "DELIVERED"
+  | "PICKING"
+  | "CHECKING";
 
 export type TrackedDocumentStatus = "MISSING" | "DRAFT" | "FINAL" | "EXPIRED";
 
@@ -76,6 +83,14 @@ export interface AllocationSummary {
 export interface CreateShipmentPayload {
   salesOrderId: number;
   allocationIds?: number[];
+  outboundChannelId?: number;
+  isExport?: boolean;
+  destination?: string;
+  vehicleNumber?: string;
+  remarks?: string;
+}
+
+export interface UpdateShipmentDetailsPayload {
   outboundChannelId?: number;
   isExport?: boolean;
   destination?: string;

@@ -95,7 +95,7 @@ export const mainMenu: MenuItem[] = [
       },
       {
         key: "pallet-allocation",
-        label: "Data Pallet Alokasi",
+        label: "Data Batch Alokasi",
         href: "/stock-outbound/alokasi-pallet",
       },
       {

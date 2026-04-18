@@ -25,10 +25,12 @@ type ScanItem = {
 };
 
 function nextShipmentStatus(current: ShipmentStatus): ShipmentStatus | null {
-  if (current === "PICKING") return "CHECKING";
-  if (current === "CHECKING") return "LOADING";
+  if (current === "ALLOCATED") return "OUTBOUND";
+  if (current === "OUTBOUND") return "LOADING";
   if (current === "LOADING") return "DISPATCHED";
   if (current === "DISPATCHED") return "DELIVERED";
+  if (current === "PICKING") return "OUTBOUND";
+  if (current === "CHECKING") return "OUTBOUND";
   return null;
 }
 
@@ -36,6 +38,12 @@ function dateAsNumber(value: string | null | undefined) {
   if (!value) return Number.MAX_SAFE_INTEGER;
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function firstAllocatableId(summary: AllocationSummary | null): string {
+  if (!summary?.allocations?.length) return "";
+  const first = summary.allocations.find((item) => item.status === "ALLOCATED");
+  return first ? String(first.allocationId) : "";
 }
 
 export default function TransaksiFefoPage() {
@@ -52,14 +60,17 @@ export default function TransaksiFefoPage() {
 
   const [loadingMaster, setLoadingMaster] = useState(true);
   const [runningFefo, setRunningFefo] = useState(false);
-  const [creatingShipment, setCreatingShipment] = useState(false);
+  const [runningManualAllocation, setRunningManualAllocation] = useState(false);
+  const [savingShipmentDetails, setSavingShipmentDetails] = useState(false);
   const [updatingShipmentId, setUpdatingShipmentId] = useState<number | null>(null);
+  const [deallocatingId, setDeallocatingId] = useState<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const [qrInput, setQrInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
+  const [outboundQrCode, setOutboundQrCode] = useState("");
   const [scanItems, setScanItems] = useState<ScanItem[]>([]);
 
   const [shipmentForm, setShipmentForm] = useState({
@@ -67,6 +78,13 @@ export default function TransaksiFefoPage() {
     vehicleNumber: "",
     driverName: "",
     transportModeId: "",
+  });
+
+  const [manualForm, setManualForm] = useState({
+    quotationItemId: "",
+    batchId: "",
+    quantityKg: "",
+    note: "",
   });
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -117,11 +135,7 @@ export default function TransaksiFefoPage() {
       const response = await stockOutboundApi.getAllocationSummary(soId);
       const summary = response.data.data;
       setAllocationSummary(summary);
-      if (summary?.allocations?.length) {
-        setSelectedAllocationId(String(summary.allocations[0].allocationId));
-      } else {
-        setSelectedAllocationId("");
-      }
+      setSelectedAllocationId(firstAllocatableId(summary));
     } catch {
       setAllocationSummary(null);
       setSelectedAllocationId("");
@@ -197,6 +211,16 @@ export default function TransaksiFefoPage() {
   const selectedSo = openSalesOrders.find((item) => item.soId === selectedSoId) ?? null;
 
   useEffect(() => {
+    const firstItem = selectedSo?.criteria?.[0];
+    setManualForm((prev) => ({
+      ...prev,
+      quotationItemId: firstItem ? String(firstItem.quotationItemId) : "",
+      batchId: "",
+      quantityKg: "",
+    }));
+  }, [selectedSoId, selectedSo]);
+
+  useEffect(() => {
     if (!selectedSo) return;
     setShipmentForm((prev) => ({
       ...prev,
@@ -205,6 +229,27 @@ export default function TransaksiFefoPage() {
   }, [selectedSo]);
 
   const selectedShipment = shipments.find((item) => item.shipmentId === selectedShipmentId) ?? null;
+
+  useEffect(() => {
+    if (!selectedShipment) return;
+    setShipmentForm((prev) => ({
+      ...prev,
+      destination: selectedShipment.destination ?? "",
+      vehicleNumber: selectedShipment.vehicleNumber ?? "",
+      transportModeId: selectedShipment.outboundChannelId != null ? String(selectedShipment.outboundChannelId) : "",
+    }));
+    setOutboundQrCode("");
+  }, [selectedShipment]);
+
+  const selectedManualCriteria =
+    selectedSo?.criteria.find((item) => item.quotationItemId === Number(manualForm.quotationItemId)) ?? null;
+
+  const manualBatchOptions = useMemo(() => {
+    if (!selectedManualCriteria?.speciesId) {
+      return sortedFefoBatches;
+    }
+    return sortedFefoBatches.filter((batch) => batch.fishSpeciesId === selectedManualCriteria.speciesId);
+  }, [sortedFefoBatches, selectedManualCriteria]);
 
   const scanTotal = scanItems.reduce((acc, item) => acc + item.weightKg, 0);
   const requiredKg = allocationSummary?.totalRequiredKg ?? 0;
@@ -220,10 +265,9 @@ export default function TransaksiFefoPage() {
     setError(null);
     try {
       const response = await stockOutboundApi.allocateStock(selectedSoId, { autoAllocate: true });
-      setAllocationSummary(response.data.data ?? null);
-      if (response.data.data?.allocations?.length) {
-        setSelectedAllocationId(String(response.data.data.allocations[0].allocationId));
-      }
+      const summary = response.data.data ?? null;
+      setAllocationSummary(summary);
+      setSelectedAllocationId(firstAllocatableId(summary));
       setSuccess("Auto FEFO berhasil dijalankan.");
       clearAlert();
       await fetchMasterData();
@@ -235,6 +279,96 @@ export default function TransaksiFefoPage() {
       clearAlert();
     } finally {
       setRunningFefo(false);
+    }
+  };
+
+  const handleRunManualAllocation = async () => {
+    if (!selectedSoId) {
+      setError("Pilih Sales Order terlebih dahulu.");
+      clearAlert();
+      return;
+    }
+
+    const quotationItemId = Number(manualForm.quotationItemId);
+    const batchId = Number(manualForm.batchId);
+    const quantityKg = Number(manualForm.quantityKg);
+
+    if (!quotationItemId || !batchId) {
+      setError("Pilih item quotation dan batch untuk manual allocation.");
+      clearAlert();
+      return;
+    }
+
+    if (!Number.isFinite(quantityKg) || quantityKg <= 0) {
+      setError("Quantity manual allocation harus lebih dari 0.");
+      clearAlert();
+      return;
+    }
+
+    setRunningManualAllocation(true);
+    setError(null);
+
+    try {
+      const response = await stockOutboundApi.allocateStock(selectedSoId, {
+        autoAllocate: false,
+        note: manualForm.note.trim() || undefined,
+        manualAllocations: [
+          {
+            quotationItemId,
+            batchId,
+            quantityKg,
+          },
+        ],
+      });
+
+      const summary = response.data.data ?? null;
+      setAllocationSummary(summary);
+      setSelectedAllocationId(firstAllocatableId(summary));
+      setManualForm((prev) => ({
+        ...prev,
+        batchId: "",
+        quantityKg: "",
+      }));
+      setSuccess("Manual allocation berhasil diproses.");
+      clearAlert();
+      await fetchMasterData();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal memproses manual allocation.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setRunningManualAllocation(false);
+    }
+  };
+
+  const handleDeallocate = async (allocationId: number) => {
+    if (!selectedSoId) {
+      setError("Pilih Sales Order terlebih dahulu.");
+      clearAlert();
+      return;
+    }
+
+    setDeallocatingId(allocationId);
+    setError(null);
+
+    try {
+      const response = await stockOutboundApi.deallocateStock(selectedSoId, allocationId);
+      const summary = response.data.data ?? null;
+      setAllocationSummary(summary);
+      setSelectedAllocationId(firstAllocatableId(summary));
+      setSuccess("Alokasi berhasil di-deallocate.");
+      clearAlert();
+      await fetchMasterData();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal melakukan de-allocation.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setDeallocatingId(null);
     }
   };
 
@@ -267,6 +401,12 @@ export default function TransaksiFefoPage() {
       return;
     }
 
+    if (allocation.status !== "ALLOCATED") {
+      setError("Hanya alokasi berstatus ALLOCATED yang dapat digunakan untuk scan.");
+      clearAlert();
+      return;
+    }
+
     const item: ScanItem = {
       id: `${Date.now()}-${Math.random()}`,
       allocationId: allocationIdNumber,
@@ -283,47 +423,51 @@ export default function TransaksiFefoPage() {
     clearAlert();
   };
 
-  const handleCreateDeliveryOrder = async () => {
-    if (!selectedSoId) {
-      setError("Pilih Sales Order terlebih dahulu.");
+  const handleSaveShipmentDetails = async () => {
+    if (!selectedShipmentId || !selectedShipment) {
+      setError("Pilih Delivery Order terlebih dahulu.");
       clearAlert();
       return;
     }
 
-    setCreatingShipment(true);
+    if (selectedShipment.status !== "OUTBOUND") {
+      setError("Detail delivery hanya bisa diisi saat status Delivery Order OUTBOUND.");
+      clearAlert();
+      return;
+    }
+
+    if (!shipmentForm.destination.trim() || !shipmentForm.vehicleNumber.trim() || !shipmentForm.transportModeId) {
+      setError("Destination, nomor kendaraan, dan moda transport wajib diisi sebelum lanjut ke LOADING.");
+      clearAlert();
+      return;
+    }
+
+    setSavingShipmentDetails(true);
     setError(null);
 
     try {
-      const payload = {
-        salesOrderId: selectedSoId,
-        destination: shipmentForm.destination || undefined,
-        vehicleNumber: shipmentForm.vehicleNumber || undefined,
+      await stockOutboundApi.updateShipmentDetails(selectedShipmentId, {
+        destination: shipmentForm.destination.trim(),
+        vehicleNumber: shipmentForm.vehicleNumber.trim(),
         outboundChannelId: shipmentForm.transportModeId ? Number(shipmentForm.transportModeId) : undefined,
         remarks: [
           shipmentForm.driverName ? `Driver: ${shipmentForm.driverName}` : "",
-          scanItems.length ? `Scanned: ${scanItems.length} pallet entry` : "",
         ]
           .filter(Boolean)
-          .join(" | "),
-      };
+          .join(" | ") || undefined,
+      });
 
-      const response = await stockOutboundApi.createShipment(payload);
-      const newShipment = response.data.data;
-
-      setSuccess(`Delivery order ${newShipment?.shipmentNumber ?? "baru"} berhasil dibuat.`);
+      setSuccess("Detail delivery berhasil disimpan.");
       clearAlert();
-      setScanItems([]);
-      setSelectedShipmentId(newShipment?.shipmentId ?? null);
-      setTab("shipment");
       await fetchMasterData();
     } catch (err: unknown) {
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Gagal membuat delivery order.";
+        "Gagal menyimpan detail delivery.";
       setError(message);
       clearAlert();
     } finally {
-      setCreatingShipment(false);
+      setSavingShipmentDetails(false);
     }
   };
 
@@ -331,14 +475,24 @@ export default function TransaksiFefoPage() {
     const next = nextShipmentStatus(shipment.status);
     if (!next) return;
 
+    if (next === "OUTBOUND" && !outboundQrCode.trim()) {
+      setError("Masukkan QR code batch untuk approve OUTBOUND.");
+      clearAlert();
+      return;
+    }
+
     setUpdatingShipmentId(shipment.shipmentId);
     try {
       await stockOutboundApi.updateShipmentStatus(shipment.shipmentId, {
         status: next,
+        qrCode: next === "OUTBOUND" ? outboundQrCode.trim() : undefined,
         note: "Update status dari modul transaksi FEFO",
       });
       setSuccess(`Status shipment ${shipment.shipmentNumber} menjadi ${next}.`);
       clearAlert();
+      if (next === "OUTBOUND") {
+        setOutboundQrCode("");
+      }
       await fetchMasterData();
       setSelectedShipmentId(shipment.shipmentId);
     } catch (err: unknown) {
@@ -355,7 +509,7 @@ export default function TransaksiFefoPage() {
   return (
     <StockOutboundModuleShell
       title="Transaksi FEFO"
-      description="Alur operasional mobile: pilih SO OPEN, jalankan FEFO, scan QR pallet, lalu lanjutkan progres shipment hingga delivered."
+      description="Alur operasional: alokasi FEFO/manual mengunci batch dan otomatis membuat Delivery Order (status ALLOCATED), lanjut approve QR ke OUTBOUND, isi detail delivery, lalu proses LOADING hingga DISPATCHED."
     >
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-3">
         <div className="grid grid-cols-2 gap-2 md:w-[380px]">
@@ -434,6 +588,79 @@ export default function TransaksiFefoPage() {
               {runningFefo ? "Memproses FEFO..." : "Jalankan Auto FEFO"}
             </button>
 
+            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+              <div>
+                <h3 className="text-sm font-semibold text-navy dark:text-white">Manual Allocation</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Gunakan manual allocation untuk override FEFO. De-allocation hanya diperbolehkan sebelum delivery order masuk tahap OUTBOUND.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <select
+                  value={manualForm.quotationItemId}
+                  onChange={(event) =>
+                    setManualForm((prev) => ({
+                      ...prev,
+                      quotationItemId: event.target.value,
+                      batchId: "",
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                >
+                  <option value="">Pilih item quotation</option>
+                  {(selectedSo?.criteria ?? []).map((criteria) => (
+                    <option key={criteria.quotationItemId} value={criteria.quotationItemId}>
+                      Item #{criteria.quotationItemId} - {criteria.speciesName ?? criteria.speciesCode ?? "Unknown species"}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={manualForm.batchId}
+                  onChange={(event) => setManualForm((prev) => ({ ...prev, batchId: event.target.value }))}
+                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                >
+                  <option value="">Pilih batch target</option>
+                  {manualBatchOptions.map((batch) => (
+                    <option key={batch.batchId} value={batch.batchId}>
+                      {batch.batchNumber} - {batch.fishSpeciesName ?? "-"} - {formatKg(batch.currentQuantity)} Kg
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  value={manualForm.quantityKg}
+                  onChange={(event) => setManualForm((prev) => ({ ...prev, quantityKg: event.target.value }))}
+                  placeholder="Quantity Kg"
+                  inputMode="decimal"
+                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                />
+
+                <input
+                  value={manualForm.note}
+                  onChange={(event) => setManualForm((prev) => ({ ...prev, note: event.target.value }))}
+                  placeholder="Catatan manual allocation (opsional)"
+                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRunManualAllocation}
+                disabled={!selectedSoId || runningManualAllocation}
+                className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {runningManualAllocation ? "Memproses Manual..." : "Simpan Manual Allocation"}
+              </button>
+
+              {selectedManualCriteria ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Kriteria item: {selectedManualCriteria.speciesName ?? selectedManualCriteria.speciesCode ?? "-"}
+                </p>
+              ) : null}
+            </div>
+
             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 dark:bg-dark-section text-left">
@@ -442,12 +669,14 @@ export default function TransaksiFefoPage() {
                     <th className="px-3 py-2">Ikan</th>
                     <th className="px-3 py-2">Expiry</th>
                     <th className="px-3 py-2 text-right">Allocated</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loadingMaster ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={6} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
                         Loading data...
                       </td>
                     </tr>
@@ -458,11 +687,26 @@ export default function TransaksiFefoPage() {
                         <td className="px-3 py-2">{item.fishSpeciesName ?? "-"}</td>
                         <td className="px-3 py-2">{formatDate(item.expirationDate)}</td>
                         <td className="px-3 py-2 text-right">{formatKg(item.allocatedQuantity)} Kg</td>
+                        <td className="px-3 py-2">{item.status}</td>
+                        <td className="px-3 py-2">
+                          {item.status === "ALLOCATED" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDeallocate(item.allocationId)}
+                              disabled={deallocatingId === item.allocationId}
+                              className="text-xs font-semibold text-red-600 disabled:opacity-60 dark:text-red-300"
+                            >
+                              {deallocatingId === item.allocationId ? "Memproses..." : "De-allocate"}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={4} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={6} className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
                         No data available.
                       </td>
                     </tr>
@@ -473,7 +717,7 @@ export default function TransaksiFefoPage() {
           </article>
 
           <article className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
-            <h2 className="text-base font-semibold text-navy dark:text-white">2. Scan QR Pallet</h2>
+            <h2 className="text-base font-semibold text-navy dark:text-white">2. Scan QR Batch</h2>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
@@ -510,11 +754,13 @@ export default function TransaksiFefoPage() {
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
             >
               <option value="">Pilih alokasi batch</option>
-              {(allocationSummary?.allocations ?? []).map((item) => (
+              {(allocationSummary?.allocations ?? [])
+                .filter((item) => item.status === "ALLOCATED")
+                .map((item) => (
                 <option key={item.allocationId} value={item.allocationId}>
                   {item.batchNumber} - {formatKg(item.allocatedQuantity)} Kg
                 </option>
-              ))}
+                ))}
             </select>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -594,48 +840,9 @@ export default function TransaksiFefoPage() {
               </table>
             </div>
 
-            <h3 className="text-sm font-semibold text-navy dark:text-white">3. Buat Delivery Order</h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <input
-                value={shipmentForm.destination}
-                onChange={(event) => setShipmentForm((prev) => ({ ...prev, destination: event.target.value }))}
-                placeholder="Lokasi Pengiriman"
-                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-              />
-              <input
-                value={shipmentForm.vehicleNumber}
-                onChange={(event) => setShipmentForm((prev) => ({ ...prev, vehicleNumber: event.target.value }))}
-                placeholder="Nomor Kendaraan"
-                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-              />
-              <input
-                value={shipmentForm.driverName}
-                onChange={(event) => setShipmentForm((prev) => ({ ...prev, driverName: event.target.value }))}
-                placeholder="Nama Driver"
-                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-              />
-              <select
-                value={shipmentForm.transportModeId}
-                onChange={(event) => setShipmentForm((prev) => ({ ...prev, transportModeId: event.target.value }))}
-                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-              >
-                <option value="">Pilih Moda Transport</option>
-                {transportModes.filter((item) => item.isActive).map((item) => (
-                  <option key={item.transportModeId} value={item.transportModeId}>
-                    {item.modeCode} - {item.modeName}
-                  </option>
-                ))}
-              </select>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+              Delivery Order dibuat otomatis saat alokasi dikunci. Lanjutkan ke tab Shipment untuk approval QR (status OUTBOUND), isi detail delivery, lalu lanjutkan ke LOADING dan DISPATCHED.
             </div>
-
-            <button
-              type="button"
-              onClick={handleCreateDeliveryOrder}
-              disabled={creatingShipment || !selectedSoId}
-              className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {creatingShipment ? "Membuat Delivery Order..." : "Buat Delivery Order"}
-            </button>
           </article>
 
           <article className="space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4 lg:col-span-2">
@@ -706,11 +913,55 @@ export default function TransaksiFefoPage() {
               className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm"
             />
             <input
-              readOnly
-              value={selectedShipment?.destination ?? ""}
-              placeholder="Lokasi pengiriman otomatis"
-              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
+              value={outboundQrCode}
+              onChange={(event) => setOutboundQrCode(event.target.value)}
+              placeholder="QR Code batch untuk approve OUTBOUND"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
             />
+            <select
+              value={shipmentForm.transportModeId}
+              onChange={(event) => setShipmentForm((prev) => ({ ...prev, transportModeId: event.target.value }))}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Pilih Moda Transport</option>
+              {transportModes.filter((item) => item.isActive).map((item) => (
+                <option key={item.transportModeId} value={item.transportModeId}>
+                  {item.modeCode} - {item.modeName}
+                </option>
+              ))}
+            </select>
+            <input
+              value={shipmentForm.destination}
+              onChange={(event) => setShipmentForm((prev) => ({ ...prev, destination: event.target.value }))}
+              placeholder="Lokasi pengiriman"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            />
+            <input
+              value={shipmentForm.vehicleNumber}
+              onChange={(event) => setShipmentForm((prev) => ({ ...prev, vehicleNumber: event.target.value }))}
+              placeholder="Nomor kendaraan"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            />
+            <input
+              value={shipmentForm.driverName}
+              onChange={(event) => setShipmentForm((prev) => ({ ...prev, driverName: event.target.value }))}
+              placeholder="Nama driver"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleSaveShipmentDetails}
+              disabled={!selectedShipment || selectedShipment.status !== "OUTBOUND" || savingShipmentDetails}
+              className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingShipmentDetails ? "Menyimpan Detail..." : "Simpan Detail Delivery"}
+            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400 self-center">
+              Approval QR dilakukan saat transisi ALLOCATED ke OUTBOUND. Setelah OUTBOUND, isi detail delivery dulu sebelum lanjut ke LOADING.
+            </span>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
