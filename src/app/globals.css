@@ -35,7 +35,6 @@ body {
   font-family: var(--font-montserrat), system-ui, sans-serif;
 }
 
-/* ── Thin scrollbar ─────────────────────────────────── */
 * {
   scrollbar-width: thin;
   scrollbar-color: #d1d5db transparent;

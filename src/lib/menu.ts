@@ -88,7 +88,26 @@ export const mainMenu: MenuItem[] = [
     label: "Pengeluaran Stok",
     icon: LuPackageOpen,
     children: [
-      { key: "so-list", label: "Daftar Pengeluaran", href: "/stock-outbound" },
+      {
+        key: "so-receiving",
+        label: "Penerimaan Sales Order",
+        href: "/stock-outbound/penerimaan-sales-order",
+      },
+      {
+        key: "pallet-allocation",
+        label: "Data Batch Alokasi",
+        href: "/stock-outbound/alokasi-pallet",
+      },
+      {
+        key: "fefo-transaction",
+        label: "Transaksi FEFO",
+        href: "/stock-outbound/transaksi-fefo",
+      },
+      {
+        key: "export-docs",
+        label: "Dokumen Ekspor",
+        href: "/stock-outbound/dokumen-ekspor",
+      },
     ],
   },
   {
@@ -96,7 +115,8 @@ export const mainMenu: MenuItem[] = [
     label: "Order Ikan",
     icon: HiOutlineShoppingCart,
     children: [
-      { key: "order-quotation", label: "Quotation", href: "/quotations" },
+      { key: "order-quotation",   label: "Quotation",       href: "/quotations" },
+      { key: "order-rekap",       label: "Rekap Penjualan", href: "/sales-rekap" },
     ],
   },
   {
