@@ -12,6 +12,7 @@ import type {
   ColdStorageStockRow,
   DisposalRequest,
   DisposalResponse,
+  StorageAreaOption,
   StockCategoryStatus,
 } from "@/types/coldstorage";
 
@@ -33,6 +34,14 @@ export async function listActiveLocations(warehouseId?: number) {
   const resp = await apiClient.get<ApiResponse<AssignLocationResponse[]>>(
     `${BASE}/locations`,
     { params: warehouseId ? { warehouseId } : undefined }
+  );
+  return unwrap(resp);
+}
+
+export async function listStorageAreaOptions(warehouseId: number) {
+  const resp = await apiClient.get<ApiResponse<StorageAreaOption[]>>(
+    `${BASE}/storage-areas`,
+    { params: { warehouseId } }
   );
   return unwrap(resp);
 }

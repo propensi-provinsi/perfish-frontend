@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
-import { assignLocation } from "@/lib/coldstorage-api";
+import { assignLocation, listStorageAreaOptions } from "@/lib/coldstorage-api";
 import type { ApiResponse, ColdStorageData } from "@/types";
-import type { AssignLocationRequest } from "@/types/coldstorage";
+import type {
+  AssignLocationRequest,
+  StorageAreaOption,
+} from "@/types/coldstorage";
 
 interface MasterBatchOption {
   batchId: number;
@@ -34,7 +37,8 @@ export default function AssignLocationForm() {
 
   const [batchId, setBatchId] = useState<number | "">("");
   const [warehouseId, setWarehouseId] = useState<number | "">("");
-  const [storageArea, setStorageArea] = useState("");
+  const [storageAreaId, setStorageAreaId] = useState<number | "">("");
+  const [storageAreas, setStorageAreas] = useState<StorageAreaOption[]>([]);
   const [tanggalMasuk, setTanggalMasuk] = useState<string>(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -64,9 +68,29 @@ export default function AssignLocationForm() {
     void bootstrap();
   }, []);
 
+  useEffect(() => {
+    async function loadStorageAreas() {
+      if (!warehouseId) {
+        setStorageAreas([]);
+        setStorageAreaId("");
+        return;
+      }
+      try {
+        const options = await listStorageAreaOptions(Number(warehouseId));
+        setStorageAreas(options);
+        setStorageAreaId("");
+      } catch (err) {
+        setStorageAreas([]);
+        setStorageAreaId("");
+        setError(err instanceof Error ? err.message : "Gagal memuat master storage area");
+      }
+    }
+    void loadStorageAreas();
+  }, [warehouseId]);
+
   const canSubmit = useMemo(
-    () => !!batchId && !!warehouseId && storageArea.trim().length > 0 && !!tanggalMasuk && !submitting,
-    [batchId, warehouseId, storageArea, tanggalMasuk, submitting]
+    () => !!batchId && !!warehouseId && !!storageAreaId && !!tanggalMasuk && !submitting,
+    [batchId, warehouseId, storageAreaId, tanggalMasuk, submitting]
   );
 
   async function handleSubmit(e: React.FormEvent) {
@@ -80,7 +104,7 @@ export default function AssignLocationForm() {
       const payload: AssignLocationRequest = {
         batchId: Number(batchId),
         warehouseId: Number(warehouseId),
-        storageArea: storageArea.trim(),
+        storageAreaId: Number(storageAreaId),
         tanggalMasuk,
         notes: notes.trim() || undefined,
       };
@@ -90,7 +114,7 @@ export default function AssignLocationForm() {
       );
       setBatchId("");
       setWarehouseId("");
-      setStorageArea("");
+      setStorageAreaId("");
       setNotes("");
     } catch (err) {
       const apiMessage =
@@ -167,14 +191,22 @@ export default function AssignLocationForm() {
             <label className="mb-1 block text-xs font-medium text-gray-500">
               Storage Area <span className="text-red-500">*</span>
             </label>
-            <input
-              value={storageArea}
-              onChange={(e) => setStorageArea(e.target.value)}
-              placeholder="Contoh: Block-A / Rack-01 / Slot-5"
+            <select
+              value={storageAreaId}
+              onChange={(e) => setStorageAreaId(e.target.value ? Number(e.target.value) : "")}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
               required
-              maxLength={100}
-            />
+              disabled={!warehouseId || loading}
+            >
+              <option value="">
+                {warehouseId ? "Pilih storage area..." : "Pilih gudang dulu..."}
+              </option>
+              {storageAreas.map((area) => (
+                <option key={area.positionId} value={area.positionId}>
+                  {area.displayName}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

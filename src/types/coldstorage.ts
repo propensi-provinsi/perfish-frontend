@@ -20,7 +20,7 @@ export type QualityGrade = "PREMIUM" | "STANDARD" | "LOW" | "REJECT";
 export interface AssignLocationRequest {
   batchId: number;
   warehouseId: number;
-  storageArea: string;
+  storageAreaId: number;
   tanggalMasuk?: string;
   notes?: string;
 }
@@ -34,6 +34,7 @@ export interface AssignLocationResponse {
   warehouseName: string;
   branchId: number | null;
   branchName: string | null;
+  storageAreaId: number | null;
   storageArea: string;
   tanggalMasuk: string;
   umurSimpanDays: number | null;
@@ -85,4 +86,13 @@ export interface DisposalResponse {
   remainingAfterDisposal: number | string;
   disposedAt: string;
   disposedBy: string | null;
+}
+
+export interface StorageAreaOption {
+  positionId: number;
+  rackId: number;
+  blockId: number;
+  warehouseId: number;
+  storageAreaCode: string;
+  displayName: string;
 }
