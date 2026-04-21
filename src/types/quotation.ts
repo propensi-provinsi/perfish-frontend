@@ -1,3 +1,5 @@
+// ── Enums & constants ─────────────────────────────────────────────
+
 export type QuotationStatus =
   | "DRAFT"
   | "SENT"
@@ -15,15 +17,14 @@ export const QUOTATION_STATUSES: { value: QuotationStatus; label: string }[] = [
   { value: "CONVERTED", label: "Dikonversi" },
 ];
 
-/** Status yang bisa dipilih via PATCH /status */
 export const UPDATABLE_STATUSES: { value: QuotationStatus; label: string }[] = [
-  { value: "SENT",     label: "Terkirim" },
-  { value: "APPROVED", label: "Disetujui" },
-  { value: "REJECTED", label: "Ditolak" },
-  { value: "EXPIRED",  label: "Kedaluwarsa" },
+  { value: "SENT",    label: "Terkirim" },
+  { value: "EXPIRED", label: "Kedaluwarsa" },
 ];
 
-export interface QuotationItemResponse {
+// ── Core data shapes ──────────────────────────────────────────────
+
+export interface QuotationItemData {
   id: number;
   batchId: number;
   volumeKg: number;
@@ -36,20 +37,32 @@ export interface QuotationData {
   quotationNumber: string;
   customerId: number;
   customerName: string;
-  dateIssued: string;   // LocalDate → "2025-06-16"
+  dateIssued: string;
   dateValid: string;
   deliveryMethod?: string;
   deliveryLocation?: string;
   status: QuotationStatus;
-  ppnRate?: number;
-  subtotal?: number;
-  ppnAmount?: number;
-  total?: number;
+  ppnRate: number;
+  subtotal: number;
+  ppnAmount: number;
+  total: number;
   notes?: string;
   createdBy?: string;
-  createdAt: string;
-  items: QuotationItemResponse[];
+  createdAt?: string;
+
+  // Approval audit
+  approvedBy?: string;
+  approvedAt?: string;
+
+  // Rejection audit
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+
+  items: QuotationItemData[];
 }
+
+// ── Request payloads ──────────────────────────────────────────────
 
 export interface QuotationItemRequest {
   batchId: number;
@@ -71,6 +84,12 @@ export interface UpdateQuotationStatusPayload {
   status: QuotationStatus;
 }
 
+export interface RejectQuotationPayload {
+  rejectionReason: string;
+}
+
+// ── Sales Order ───────────────────────────────────────────────────
+
 export interface SalesOrderData {
   id: number;
   soNumber: string;
@@ -80,5 +99,19 @@ export interface SalesOrderData {
   customerName: string;
   status: string;
   convertedBy?: string;
-  convertedAt: string;
+  convertedAt?: string;
+}
+
+// ── Sales Rekap ───────────────────────────────────────────────────
+
+export interface SalesRekapData {
+  ranking: number;
+  customerId: number;
+  customerName: string;
+  customerType: string;
+  totalOrders: number;
+  totalQuantityKg: number;
+  totalValueRp: number;
+  avgOrderValueRp: number;
+  kontribusiPersen: number;
 }

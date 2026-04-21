@@ -2,27 +2,17 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   HiOutlinePlus,
   HiOutlineArrowPath,
   HiOutlineEye,
   HiOutlineCheckCircle,
   HiOutlineXCircle,
-  HiOutlinePaperAirplane,
-  HiOutlineClock,
 } from "react-icons/hi2";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
-import apiClient from "@/lib/api";
-import type { ApiResponse } from "@/types";
-import type {
-  QuotationData,
-  QuotationStatus,
-  UpdateQuotationStatusPayload,
-  SalesOrderData,
-  UPDATABLE_STATUSES,
-} from "@/types/quotation";
+import { quotationApi } from "@/lib/quotation-api";
+import type { QuotationData, QuotationStatus, SalesOrderData, UpdateQuotationStatusPayload, RejectQuotationPayload } from "@/types/quotation";
 import { QUOTATION_STATUSES, UPDATABLE_STATUSES as UPDATABLE } from "@/types/quotation";
 
 export default function QuotationsPage() {
@@ -82,7 +72,6 @@ function formatDate(val?: string | null) {
 type FilterStatus = "" | QuotationStatus;
 
 function QuotationsContent() {
-  const router = useRouter();
   const [quotations, setQuotations] = useState<QuotationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,16 +81,18 @@ function QuotationsContent() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("");
 
   // Modal states
-  const [statusModal, setStatusModal] = useState<QuotationData | null>(null);
+  const [statusModal, setStatusModal]   = useState<QuotationData | null>(null);
+  const [approveModal, setApproveModal] = useState<QuotationData | null>(null);
+  const [rejectModal, setRejectModal]   = useState<QuotationData | null>(null);
   const [convertModal, setConvertModal] = useState<QuotationData | null>(null);
-  const [detailModal, setDetailModal] = useState<QuotationData | null>(null);
+  const [detailModal, setDetailModal]   = useState<QuotationData | null>(null);
 
-  /* ── Fetch all quotations ──────────────────────────── */
+  /* ── Fetch ───────────────────────────────────────── */
   const fetchQuotations = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await apiClient.get<ApiResponse<QuotationData[]>>("/v1/quotations");
+      const { data } = await quotationApi.getAll();
       setQuotations(data.data);
     } catch {
       setError("Gagal memuat data quotation");
@@ -112,7 +103,7 @@ function QuotationsContent() {
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
 
-  /* ── Client-side filter + search ─────────────────── */
+  /* ── Filter ──────────────────────────────────────── */
   const displayed = useMemo(() => {
     let rows = quotations;
     if (filterStatus) rows = rows.filter((q) => q.status === filterStatus);
@@ -126,14 +117,15 @@ function QuotationsContent() {
     return rows;
   }, [quotations, filterStatus, searchQuery]);
 
-  /* ── Actions ──────────────────────────────────────── */
   function showSuccess(msg: string) {
     setSuccessMsg(msg);
-    setTimeout(() => setSuccessMsg(null), 3000);
+    setTimeout(() => setSuccessMsg(null), 3500);
   }
 
+  /* ── Render ──────────────────────────────────────── */
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Quotation</h1>
@@ -162,7 +154,7 @@ function QuotationsContent() {
         </div>
       )}
 
-      {/* ── Toolbar ───────────────────────────────────── */}
+      {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3">
         <input
           type="text"
@@ -173,13 +165,13 @@ function QuotationsContent() {
             dark:text-gray-100 px-3 py-2 text-sm focus:border-cyan focus:outline-none
             focus:ring-2 focus:ring-cyan/20 dark:placeholder:text-gray-500 transition-colors"
         />
-
-        {/* Status filter pills */}
         <div className="flex flex-wrap gap-1.5">
           <button
             onClick={() => setFilterStatus("")}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
-              ${filterStatus === "" ? "bg-navy text-white dark:bg-white dark:text-navy" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+              ${filterStatus === ""
+                ? "bg-navy text-white dark:bg-white dark:text-navy"
+                : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
           >
             Semua
           </button>
@@ -188,7 +180,9 @@ function QuotationsContent() {
               key={s.value}
               onClick={() => setFilterStatus(s.value === filterStatus ? "" : s.value)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
-                ${filterStatus === s.value ? STATUS_STYLE[s.value] + " ring-1 ring-current" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+                ${filterStatus === s.value
+                  ? STATUS_STYLE[s.value] + " ring-1 ring-current"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
             >
               {s.label}
             </button>
@@ -198,15 +192,18 @@ function QuotationsContent() {
 
       <p className="text-xs text-gray-400">{displayed.length} quotation ditemukan</p>
 
-      {/* ── Table ─────────────────────────────────────── */}
+      {/* Table */}
       {loading ? (
-        <p className="text-gray-400 text-sm">Memuat quotation…</p>
+        <div className="flex items-center gap-2 text-gray-400 text-sm py-8">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-cyan" />
+          Memuat quotation…
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-dark-section">
               <tr>
-                {["No. Quotation", "Customer", "Tgl Terbit", "Tgl Berlaku", "Total", "Status", "Aksi"].map((h) => (
+                {["No. Quotation", "Customer", "Tgl Terbit", "Tgl Berlaku", "Dibuat Oleh", "Total", "Status", "Aksi"].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
                     {h}
                   </th>
@@ -216,7 +213,7 @@ function QuotationsContent() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {displayed.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                     {searchQuery || filterStatus ? "Tidak ada quotation yang cocok." : "Belum ada data quotation."}
                   </td>
                 </tr>
@@ -235,6 +232,9 @@ function QuotationsContent() {
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {formatDate(q.dateValid)}
                     </td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      {q.createdBy || "—"}
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap tabular-nums">
                       {formatRupiah(q.total)}
                     </td>
@@ -249,21 +249,39 @@ function QuotationsContent() {
                           title="Lihat detail"
                           icon={<HiOutlineEye className="h-4 w-4" />}
                         />
-                        {/* Update status */}
-                        {q.status !== "CONVERTED" && (
+                        {/* Update status generic */}
+                        {q.status !== "CONVERTED" && q.status !== "APPROVED" && q.status !== "REJECTED" && (
                           <ActionBtn
                             onClick={() => setStatusModal(q)}
                             title="Update status"
                             icon={<HiOutlineArrowPath className="h-4 w-4" />}
                           />
                         )}
-                        {/* Convert */}
+                        {/* Approve — hanya untuk status SENT */}
+                        {q.status === "SENT" && (
+                          <ActionBtn
+                            onClick={() => setApproveModal(q)}
+                            title="Setujui quotation"
+                            icon={<HiOutlineCheckCircle className="h-4 w-4" />}
+                            color="green"
+                          />
+                        )}
+                        {/* Reject — untuk DRAFT atau SENT */}
+                        {(q.status === "DRAFT" || q.status === "SENT") && (
+                          <ActionBtn
+                            onClick={() => setRejectModal(q)}
+                            title="Tolak quotation"
+                            icon={<HiOutlineXCircle className="h-4 w-4" />}
+                            color="red"
+                          />
+                        )}
+                        {/* Convert — hanya APPROVED */}
                         {q.status === "APPROVED" && (
                           <ActionBtn
                             onClick={() => setConvertModal(q)}
                             title="Konversi ke Sales Order"
-                            icon={<HiOutlineCheckCircle className="h-4 w-4 text-green" />}
-                            highlight
+                            icon={<HiOutlineCheckCircle className="h-4 w-4" />}
+                            color="green"
                           />
                         )}
                       </div>
@@ -276,23 +294,31 @@ function QuotationsContent() {
         </div>
       )}
 
-      {/* ── Modals ────────────────────────────────────── */}
+      {/* Modals */}
       {detailModal && (
         <DetailModal quotation={detailModal} onClose={() => setDetailModal(null)} />
       )}
-
       {statusModal && (
         <UpdateStatusModal
           quotation={statusModal}
           onClose={() => setStatusModal(null)}
-          onSuccess={(msg) => {
-            setStatusModal(null);
-            showSuccess(msg);
-            fetchQuotations();
-          }}
+          onSuccess={(msg) => { setStatusModal(null); showSuccess(msg); fetchQuotations(); }}
         />
       )}
-
+      {approveModal && (
+        <ApproveModal
+          quotation={approveModal}
+          onClose={() => setApproveModal(null)}
+          onSuccess={(msg) => { setApproveModal(null); showSuccess(msg); fetchQuotations(); }}
+        />
+      )}
+      {rejectModal && (
+        <RejectModal
+          quotation={rejectModal}
+          onClose={() => setRejectModal(null)}
+          onSuccess={(msg) => { setRejectModal(null); showSuccess(msg); fetchQuotations(); }}
+        />
+      )}
       {convertModal && (
         <ConvertModal
           quotation={convertModal}
@@ -313,19 +339,24 @@ function QuotationsContent() {
    ================================================================ */
 
 function ActionBtn({
-  onClick, title, icon, highlight,
+  onClick, title, icon, color,
 }: {
-  onClick: () => void; title: string; icon: React.ReactNode; highlight?: boolean;
+  onClick: () => void;
+  title: string;
+  icon: React.ReactNode;
+  color?: "green" | "red";
 }) {
+  const colorClass = color === "green"
+    ? "text-green hover:bg-green-light"
+    : color === "red"
+    ? "text-red hover:bg-red-light"
+    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-white/10";
+
   return (
     <button
       onClick={onClick}
       title={title}
-      className={`rounded-lg p-1.5 transition-colors
-        ${highlight
-          ? "text-green hover:bg-green-light"
-          : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-white/10"
-        }`}
+      className={`rounded-lg p-1.5 transition-colors ${colorClass}`}
     >
       {icon}
     </button>
@@ -340,18 +371,25 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
   return (
     <ModalShell title={`Detail — ${q.quotationNumber}`} onClose={onClose} wide>
       <div className="space-y-4">
-        {/* Header info */}
         <div className="grid grid-cols-2 gap-3 text-sm">
-          {[
-            ["Customer", q.customerName],
-            ["Status", <StatusBadge key="s" status={q.status} />],
-            ["Tanggal Terbit", formatDate(q.dateIssued)],
-            ["Berlaku Hingga", formatDate(q.dateValid)],
-            ["Metode Pengiriman", q.deliveryMethod || "—"],
+          {([
+            ["Customer",          q.customerName],
+            ["Status",            <StatusBadge key="s" status={q.status} />],
+            ["Tanggal Terbit",    new Date(q.dateIssued).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
+            ["Berlaku Hingga",    new Date(q.dateValid).toLocaleDateString("id-ID",   { day: "2-digit", month: "long", year: "numeric" })],
+            ["Metode Pengiriman", q.deliveryMethod  || "—"],
             ["Lokasi Pengiriman", q.deliveryLocation || "—"],
-            ["Dibuat Oleh", q.createdBy || "—"],
-            ["Catatan", q.notes || "—"],
-          ].map(([label, val]) => (
+            ["Dibuat Oleh",       q.createdBy       || "—"],
+            ["Catatan",           q.notes           || "—"],
+            ...(q.approvedBy ? [
+              ["Disetujui Oleh", q.approvedBy],
+              ["Waktu Disetujui", q.approvedAt ? new Date(q.approvedAt).toLocaleString("id-ID") : "—"],
+            ] : []),
+            ...(q.rejectedBy ? [
+              ["Ditolak Oleh",   q.rejectedBy],
+              ["Alasan Penolakan", q.rejectionReason || "—"],
+            ] : []),
+          ] as [string, React.ReactNode][]).map(([label, val]) => (
             <div key={String(label)}>
               <p className="text-xs text-gray-400 mb-0.5">{label}</p>
               <p className="font-medium text-gray-800 dark:text-gray-200">{val}</p>
@@ -359,7 +397,7 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
           ))}
         </div>
 
-        {/* Items table */}
+        {/* Items */}
         <div>
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Item</p>
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -388,9 +426,9 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
         {/* Totals */}
         <div className="rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-sm space-y-1.5">
           {[
-            ["Subtotal", formatRupiah(q.subtotal)],
-            ["PPN", q.ppnRate != null ? `${q.ppnRate}%` : "—"],
-            ["PPN Amount", formatRupiah(q.ppnAmount)],
+            ["Subtotal",    formatRupiah(q.subtotal)],
+            ["PPN",         q.ppnRate != null ? `${(q.ppnRate * 100).toFixed(0)}%` : "—"],
+            ["PPN Amount",  formatRupiah(q.ppnAmount)],
           ].map(([label, val]) => (
             <div key={String(label)} className="flex justify-between text-gray-500">
               <span>{label}</span><span>{val}</span>
@@ -406,13 +444,11 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
 }
 
 /* ================================================================
-   Update Status Modal
+   Update Status Modal (generic — SENT / EXPIRED)
    ================================================================ */
 
 function UpdateStatusModal({
-  quotation,
-  onClose,
-  onSuccess,
+  quotation, onClose, onSuccess,
 }: {
   quotation: QuotationData;
   onClose: () => void;
@@ -426,10 +462,7 @@ function UpdateStatusModal({
     setSubmitting(true);
     setError(null);
     try {
-      await apiClient.patch<ApiResponse<QuotationData>>(
-        `/v1/quotations/${quotation.id}/status`,
-        { status } satisfies UpdateQuotationStatusPayload
-      );
+      await quotationApi.updateStatus(quotation.id, { status } satisfies UpdateQuotationStatusPayload);
       onSuccess(`Status quotation ${quotation.quotationNumber} diperbarui ke ${STATUS_LABEL[status]}`);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -447,15 +480,9 @@ function UpdateStatusModal({
           <p className="font-semibold text-gray-900 dark:text-gray-100">{quotation.quotationNumber}</p>
           <p className="text-gray-500 mt-1">Status saat ini: <StatusBadge status={quotation.status} /></p>
         </div>
-
-        {error && (
-          <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>
-        )}
-
+        {error && <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Status Baru
-          </label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status Baru</label>
           <div className="grid grid-cols-2 gap-2">
             {UPDATABLE.map((s) => (
               <button
@@ -464,27 +491,168 @@ function UpdateStatusModal({
                 className={`rounded-lg border px-3 py-2.5 text-sm font-medium text-left transition-colors
                   ${status === s.value
                     ? "border-cyan bg-cyan/5 text-cyan"
-                    : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600"
-                  }`}
+                    : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300"}`}
               >
                 {s.label}
               </button>
             ))}
           </div>
         </div>
+        <ModalActions onClose={onClose} onConfirm={handleSubmit} loading={submitting} confirmLabel="Simpan" />
+      </div>
+    </ModalShell>
+  );
+}
 
-        <div className="flex justify-end gap-3 pt-2">
-          <button onClick={onClose}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium
-              text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-            Batal
-          </button>
-          <button onClick={handleSubmit} disabled={submitting}
-            className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white
-              hover:bg-cyan-hover disabled:opacity-50 transition-all">
-            {submitting ? "Menyimpan…" : "Simpan"}
-          </button>
+/* ================================================================
+   Approve Modal
+   ================================================================ */
+
+function ApproveModal({
+  quotation, onClose, onSuccess,
+}: {
+  quotation: QuotationData;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleApprove() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await quotationApi.approve(quotation.id);
+      onSuccess(`Quotation ${quotation.quotationNumber} berhasil disetujui`);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e.response?.data?.message || "Gagal menyetujui quotation");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell title="Setujui Quotation" onClose={onClose}>
+      <div className="space-y-4">
+        {/* Summary */}
+        <div className="rounded-lg bg-green-light/40 border border-green/20 p-4 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Quotation</span>
+            <span className="font-semibold font-mono text-gray-900 dark:text-gray-100">{quotation.quotationNumber}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Customer</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{quotation.customerName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Total</span>
+            <span className="font-semibold text-gray-900 dark:text-gray-100">{formatRupiah(quotation.total)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Berlaku Hingga</span>
+            <span className="text-gray-900 dark:text-gray-100">{formatDate(quotation.dateValid)}</span>
+          </div>
         </div>
+
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Quotation ini akan berstatus <span className="font-semibold text-green">Disetujui</span> dan dapat dikonversi menjadi Sales Order.
+        </p>
+
+        {error && <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>}
+
+        <ModalActions
+          onClose={onClose}
+          onConfirm={handleApprove}
+          loading={submitting}
+          confirmLabel="Setujui"
+          confirmClass="bg-green hover:bg-green/90"
+        />
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ================================================================
+   Reject Modal
+   ================================================================ */
+
+function RejectModal({
+  quotation, onClose, onSuccess,
+}: {
+  quotation: QuotationData;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReject() {
+    if (!reason.trim()) {
+      setError("Alasan penolakan wajib diisi");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await quotationApi.reject(quotation.id, { rejectionReason: reason.trim() } satisfies RejectQuotationPayload);
+      onSuccess(`Quotation ${quotation.quotationNumber} berhasil ditolak`);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e.response?.data?.message || "Gagal menolak quotation");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell title="Tolak Quotation" onClose={onClose}>
+      <div className="space-y-4">
+        {/* Summary */}
+        <div className="rounded-lg bg-red-light/40 border border-red/20 p-4 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Quotation</span>
+            <span className="font-semibold font-mono text-gray-900 dark:text-gray-100">{quotation.quotationNumber}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Customer</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{quotation.customerName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Total</span>
+            <span className="font-semibold text-gray-900 dark:text-gray-100">{formatRupiah(quotation.total)}</span>
+          </div>
+        </div>
+
+        {/* Reason textarea */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            Alasan Penolakan <span className="text-red">*</span>
+          </label>
+          <textarea
+            value={reason}
+            onChange={(e) => { setReason(e.target.value); if (error) setError(null); }}
+            placeholder="Jelaskan alasan penolakan quotation ini…"
+            rows={4}
+            className={`w-full rounded-lg border px-3.5 py-2.5 text-sm resize-none
+              dark:bg-dark-section dark:text-gray-100 dark:placeholder:text-gray-500
+              focus:outline-none focus:ring-2 transition-colors
+              ${error
+                ? "border-red bg-red-light/20 focus:border-red focus:ring-red/20"
+                : "border-gray-300 dark:border-gray-600 focus:border-red focus:ring-red/20"}`}
+          />
+          {error && <p className="mt-1 text-xs text-red">{error}</p>}
+          <p className="mt-1 text-xs text-gray-400">{reason.length} karakter</p>
+        </div>
+
+        <ModalActions
+          onClose={onClose}
+          onConfirm={handleReject}
+          loading={submitting}
+          confirmLabel="Tolak Quotation"
+          confirmClass="bg-red hover:bg-red/90"
+        />
       </div>
     </ModalShell>
   );
@@ -495,9 +663,7 @@ function UpdateStatusModal({
    ================================================================ */
 
 function ConvertModal({
-  quotation,
-  onClose,
-  onSuccess,
+  quotation, onClose, onSuccess,
 }: {
   quotation: QuotationData;
   onClose: () => void;
@@ -510,9 +676,7 @@ function ConvertModal({
     setSubmitting(true);
     setError(null);
     try {
-      const { data } = await apiClient.post<ApiResponse<SalesOrderData>>(
-        `/v1/quotations/${quotation.id}/convert`
-      );
+      const { data } = await quotationApi.convert(quotation.id);
       onSuccess(data.data);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -539,34 +703,24 @@ function ConvertModal({
             <span className="font-semibold text-gray-900 dark:text-gray-100">{formatRupiah(quotation.total)}</span>
           </div>
         </div>
-
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Quotation ini akan dikonversi menjadi <strong>Sales Order</strong>. Tindakan ini tidak dapat dibatalkan.
         </p>
-
-        {error && (
-          <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <button onClick={onClose}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium
-              text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-            Batal
-          </button>
-          <button onClick={handleConvert} disabled={submitting}
-            className="rounded-lg bg-green px-4 py-2 text-sm font-semibold text-white
-              hover:bg-green/90 disabled:opacity-50 transition-all">
-            {submitting ? "Mengkonversi…" : "Konversi ke SO"}
-          </button>
-        </div>
+        {error && <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>}
+        <ModalActions
+          onClose={onClose}
+          onConfirm={handleConvert}
+          loading={submitting}
+          confirmLabel="Konversi ke SO"
+          confirmClass="bg-green hover:bg-green/90"
+        />
       </div>
     </ModalShell>
   );
 }
 
 /* ================================================================
-   Modal Shell
+   Shared: Modal Shell + Actions
    ================================================================ */
 
 function ModalShell({
@@ -583,6 +737,36 @@ function ModalShell({
         </div>
         <div className="overflow-y-auto flex-1 px-6 py-5">{children}</div>
       </div>
+    </div>
+  );
+}
+
+function ModalActions({
+  onClose, onConfirm, loading, confirmLabel, confirmClass,
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  loading: boolean;
+  confirmLabel: string;
+  confirmClass?: string;
+}) {
+  return (
+    <div className="flex justify-end gap-3 pt-2">
+      <button
+        onClick={onClose}
+        className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium
+          text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+      >
+        Batal
+      </button>
+      <button
+        onClick={onConfirm}
+        disabled={loading}
+        className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 transition-all
+          ${confirmClass ?? "bg-cyan hover:bg-cyan-hover"}`}
+      >
+        {loading ? "Memproses…" : confirmLabel}
+      </button>
     </div>
   );
 }
