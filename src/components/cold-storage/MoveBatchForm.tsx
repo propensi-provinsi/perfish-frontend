@@ -50,12 +50,11 @@ export default function MoveBatchForm() {
       setLoading(true);
       setError(null);
       try {
-        const [locations, warehouses] = await Promise.all([
-          listActiveLocations(),
-          getColdStorages(),
-        ]);
+        const [locations, warehouses] = await Promise.all([listActiveLocations(), getColdStorages()]);
+        const activeWarehouses = warehouses.filter((cs) => cs.isActive);
+
         setActiveLocations(locations);
-        setColdStorages(warehouses.filter((cs) => cs.isActive));
+        setColdStorages(activeWarehouses);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memuat data perpindahan batch");
       } finally {
@@ -64,6 +63,11 @@ export default function MoveBatchForm() {
     }
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    setTargetWarehouseId("");
+    setTargetAreaId("");
+  }, [batchId]);
 
   useEffect(() => {
     if (!targetWarehouseId) {
@@ -75,7 +79,8 @@ export default function MoveBatchForm() {
     async function loadTargetAreas() {
       try {
         const rows = await listStorageAreaOptions(Number(targetWarehouseId));
-        setTargetAreas(rows);
+        const sourcePositionId = selectedLocation?.storageAreaId;
+        setTargetAreas(rows.filter((area) => area.positionId !== sourcePositionId));
         setTargetAreaId("");
       } catch (err) {
         setTargetAreas([]);
@@ -83,8 +88,9 @@ export default function MoveBatchForm() {
         setError(err instanceof Error ? err.message : "Gagal memuat lokasi tujuan");
       }
     }
+
     void loadTargetAreas();
-  }, [targetWarehouseId]);
+  }, [selectedLocation?.storageAreaId, targetWarehouseId]);
 
   const canSubmit = useMemo(
     () => !!selectedLocation && !!targetAreaId && !submitting,
@@ -205,21 +211,24 @@ export default function MoveBatchForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Lokasi Tujuan</label>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Storage Area Tujuan</label>
             <select
               value={targetAreaId}
               onChange={(e) => setTargetAreaId(e.target.value ? Number(e.target.value) : "")}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
-              disabled={!targetWarehouseId}
+              disabled={!targetWarehouseId || loading || targetAreas.length === 0}
               required
             >
-              <option value="">Pilih lokasi tujuan...</option>
+              <option value="">Pilih storage area tujuan...</option>
               {targetAreas.map((area) => (
                 <option key={area.positionId} value={area.positionId}>
                   {area.displayName}
                 </option>
               ))}
             </select>
+            {!loading && targetWarehouseId && targetAreas.length === 0 && (
+              <p className="mt-1 text-xs text-gray-500">Tidak ada storage area aktif yang tersedia.</p>
+            )}
           </div>
         </div>
 
