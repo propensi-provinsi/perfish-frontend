@@ -114,6 +114,16 @@ export default function ColdStorageDashboard() {
             <Link href="/cold-storage/assign-location">
               <Button size="sm">Tetapkan Lokasi Batch</Button>
             </Link>
+            <Link href="/cold-storage/move-batch">
+              <Button size="sm" variant="outline">
+                Move Batch
+              </Button>
+            </Link>
+            <Link href="/cold-storage/batch-history">
+              <Button size="sm" variant="outline">
+                Histori Batch
+              </Button>
+            </Link>
             <Link href="/cold-storage/disposal">
               <Button size="sm" variant="outline">
                 Disposal

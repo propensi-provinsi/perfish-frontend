@@ -96,3 +96,82 @@ export interface StorageAreaOption {
   storageAreaCode: string;
   displayName: string;
 }
+
+// ── E05-PBI-04: Move Batch ───────────────────────────────────────
+
+export interface MoveBatchRequest {
+  batch_id: number;
+  lokasi_asal: number;
+  lokasi_tujuan: number;
+  notes?: string;
+}
+
+export interface MoveBatchResponse {
+  batchId: number;
+  batchNumber: string;
+  lokasiAsal: number;
+  lokasiAsalLabel: string;
+  warehouseAsalId: number | null;
+  warehouseAsalCode: string | null;
+  warehouseAsalName: string | null;
+  lokasiTujuan: number;
+  lokasiTujuanLabel: string;
+  warehouseTujuanId: number;
+  warehouseTujuanCode: string;
+  warehouseTujuanName: string;
+  tanggalMasuk: string;
+  umurSimpanDays: number | null;
+  newLocationId: number;
+  movedAt: string;
+  movedBy: string | null;
+}
+
+export interface BatchStatusHistoryItem {
+  timestamp: string;
+  oldStatus: string | null;
+  newStatus: string | null;
+  changedBy: string | null;
+  actionType: string | null;
+}
+
+export interface BatchMovementHistoryItem {
+  locationId: number;
+  warehouseId: number | null;
+  warehouseCode: string | null;
+  warehouseName: string | null;
+  storageArea: string | null;
+  tanggalMasuk: string | null;
+  umurSimpanDays: number | null;
+  isActive: boolean;
+  movedAt: string | null;
+  movedBy: string | null;
+}
+
+export interface BatchDisposalHistoryItem {
+  disposalId: number;
+  disposedAt: string;
+  disposedBy: string | null;
+  jumlahDibuang: string;
+  unit: string | null;
+  alasan: string;
+  remainingAfterDisposal: string | null;
+}
+
+export interface BatchTimelineItem {
+  timestamp: string;
+  type: "MOVEMENT" | "STATUS" | "DISPOSAL" | string;
+  title: string;
+  description: string;
+  actor: string | null;
+}
+
+export interface BatchHistoryResponse {
+  batchId: number;
+  batchNumber: string;
+  currentStatus: string | null;
+  tanggalMasuk: string | null;
+  statusChanges: BatchStatusHistoryItem[];
+  movementHistory: BatchMovementHistoryItem[];
+  disposalHistory: BatchDisposalHistoryItem[];
+  timeline: BatchTimelineItem[];
+}

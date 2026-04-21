@@ -9,9 +9,12 @@ import type { ApiResponse } from "@/types/api";
 import type {
   AssignLocationRequest,
   AssignLocationResponse,
+  BatchHistoryResponse,
   ColdStorageStockRow,
   DisposalRequest,
   DisposalResponse,
+  MoveBatchRequest,
+  MoveBatchResponse,
   StorageAreaOption,
   StockCategoryStatus,
 } from "@/types/coldstorage";
@@ -73,6 +76,28 @@ export async function listDisposalHistory(batchId?: number) {
   const resp = await apiClient.get<ApiResponse<DisposalResponse[]>>(
     `${BASE}/disposals`,
     { params: batchId ? { batchId } : undefined }
+  );
+  return unwrap(resp);
+}
+
+export async function moveBatch(payload: MoveBatchRequest) {
+  const resp = await apiClient.post<ApiResponse<MoveBatchResponse>>(
+    "/storage/move",
+    payload
+  );
+  return unwrap(resp);
+}
+
+export async function listBatchMoveHistory(batchId: number) {
+  const resp = await apiClient.get<ApiResponse<AssignLocationResponse[]>>(
+    `${BASE}/batches/${batchId}/move-history`
+  );
+  return unwrap(resp);
+}
+
+export async function getBatchHistory(batchId: number) {
+  const resp = await apiClient.get<ApiResponse<BatchHistoryResponse>>(
+    `/storage/batch/${batchId}/history`
   );
   return unwrap(resp);
 }
