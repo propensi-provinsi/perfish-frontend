@@ -26,6 +26,23 @@ export interface MenuItem {
 
 export const AUDIT_TRAIL_ROLES = ["WAREHOUSE_ADMIN", "BOARD_DIRECTORS", "SUPERADMIN"] as const;
 
+/**
+ * Role yang boleh akses menu Laporan.
+ * Staff operasional (SBB, Warehouse) hanya bisa laporan operasional.
+ * Manager ke atas bisa semua laporan termasuk Sales Rekap & Distribusi.
+ * Filtering jenis laporan yang ditampilkan dilakukan di backend (GET /v1/reports/types).
+ */
+export const REPORTS_ROLES = [
+  "SUPERADMIN",
+  "KEPALA_CABANG",
+  "MANAGER_SALES",
+  "DIREKSI",
+  "STAFF_SALES",
+  "SBB_STAFF",
+  "WAREHOUSE_STAFF",
+  "WAREHOUSE_ADMIN",
+] as const;
+
 export const mainMenu: MenuItem[] = [
   {
     key: "home",
@@ -46,14 +63,14 @@ export const mainMenu: MenuItem[] = [
     label: "Master Data",
     icon: HiOutlineClipboardDocumentList,
     children: [
-      { key: "md-fish", label: "Data Ikan", href: "/master-data/fish" },
-      { key: "md-storage", label: "Cold Storage", href: "/master-data/storage" },
-      { key: "md-financial", label: "Financial Support", href: "/master-data/financial-support" },
-      { key: "md-outbound", label: "Komp. Pengeluaran", href: "/master-data/outbound-components" },
-      { key: "md-sales", label: "Komp. Penjualan", href: "/master-data/sales-components" },
-      { key: "md-supplier", label: "Supplier", href: "/master-data/suppliers" },
-      { key: "md-customer", label: "Customer", href: "/master-data/customers" },
-      { key: "md-user", label: "User", href: "/master-data/users" },
+      { key: "md-fish",      label: "Data Ikan",          href: "/master-data/fish" },
+      { key: "md-storage",   label: "Cold Storage",        href: "/master-data/storage" },
+      { key: "md-financial", label: "Financial Support",   href: "/master-data/financial-support" },
+      { key: "md-outbound",  label: "Komp. Pengeluaran",   href: "/master-data/outbound-components" },
+      { key: "md-sales",     label: "Komp. Penjualan",     href: "/master-data/sales-components" },
+      { key: "md-supplier",  label: "Supplier",            href: "/master-data/suppliers" },
+      { key: "md-customer",  label: "Customer",            href: "/master-data/customers" },
+      { key: "md-user",      label: "User",                href: "/master-data/users" },
     ],
   },
   {
@@ -67,8 +84,8 @@ export const mainMenu: MenuItem[] = [
     label: "Expired Alert & Notification",
     icon: HiOutlineExclamationTriangle,
     children: [
-      { key: "expired-alert-dashboard", label: "Monitor", href: "/expired-alert" },
-      { key: "expired-alert-config", label: "Konfigurasi Shelf Life", href: "/expired-alert/config" },
+      { key: "expired-alert-dashboard", label: "Monitor",                  href: "/expired-alert" },
+      { key: "expired-alert-config",    label: "Konfigurasi Shelf Life",   href: "/expired-alert/config" },
     ],
   },
   {
@@ -94,26 +111,10 @@ export const mainMenu: MenuItem[] = [
     label: "Pengeluaran Stok",
     icon: LuPackageOpen,
     children: [
-      {
-        key: "so-receiving",
-        label: "Penerimaan Sales Order",
-        href: "/stock-outbound/penerimaan-sales-order",
-      },
-      {
-        key: "pallet-allocation",
-        label: "Data Batch Alokasi",
-        href: "/stock-outbound/alokasi-pallet",
-      },
-      {
-        key: "fefo-transaction",
-        label: "Transaksi FEFO",
-        href: "/stock-outbound/transaksi-fefo",
-      },
-      {
-        key: "export-docs",
-        label: "Dokumen Ekspor",
-        href: "/stock-outbound/dokumen-ekspor",
-      },
+      { key: "so-receiving",      label: "Penerimaan Sales Order", href: "/stock-outbound/penerimaan-sales-order" },
+      { key: "pallet-allocation", label: "Data Batch Alokasi",     href: "/stock-outbound/alokasi-pallet" },
+      { key: "fefo-transaction",  label: "Transaksi FEFO",         href: "/stock-outbound/transaksi-fefo" },
+      { key: "export-docs",       label: "Dokumen Ekspor",         href: "/stock-outbound/dokumen-ekspor" },
     ],
   },
   {
@@ -136,7 +137,8 @@ export const mainMenu: MenuItem[] = [
     label: "Laporan",
     icon: LuChartBar,
     children: [
-      { key: "report-list", label: "Daftar Laporan", href: "/reports" },
+      { key: "report-generate", label: "Generate Laporan", href: "/reports" },
+      { key: "report-history",  label: "Riwayat Laporan",  href: "/reports/history" },
     ],
   },
 ];
@@ -147,6 +149,10 @@ export const bottomMenu: MenuItem = {
   icon: HiOutlineCog6Tooth,
   href: "/settings",
 };
+
+// ─────────────────────────────────────────────
+//  Static menu items (reused across roles)
+// ─────────────────────────────────────────────
 
 const PENERIMAAN_IKAN_ITEM: MenuItem = {
   key: "purchasing-penerimaan",
@@ -166,20 +172,36 @@ const RINGKASAN_SUPPLIER_ITEM: MenuItem = {
   href: "/inbound-ikan/ringkasan-supplier",
 };
 
-/** Submenu Inbound Ikan: Ringkasan Supplier untuk Staf SBB, Superadmin, dan Kepala Cabang */
+const REPORTS_MENU: MenuItem = {
+  key: "reports",
+  label: "Laporan",
+  icon: LuChartBar,
+  children: [
+    { key: "report-generate", label: "Generate Laporan", href: "/reports" },
+    { key: "report-history",  label: "Riwayat Laporan",  href: "/reports/history" },
+  ],
+};
+
+// ─────────────────────────────────────────────
+//  Role-based menu builders
+// ─────────────────────────────────────────────
+
 function inboundPurchasingItem(role: string | undefined): MenuItem {
   const showRingkasan =
     role === "SBB_STAFF" || role === "SUPERADMIN" || role === "KEPALA_CABANG";
   const canViewPo =
-    role === "SUPERADMIN" || role === "SBB_STAFF" || role === "KEPALA_CABANG" || role === "WAREHOUSE_STAFF";
-  const baseChildren = canViewPo ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM] : [PENERIMAAN_IKAN_ITEM];
+    role === "SUPERADMIN" || role === "SBB_STAFF" ||
+    role === "KEPALA_CABANG" || role === "WAREHOUSE_STAFF";
+
+  const baseChildren = canViewPo
+    ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM]
+    : [PENERIMAAN_IKAN_ITEM];
+
   return {
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: showRingkasan
-      ? [...baseChildren, RINGKASAN_SUPPLIER_ITEM]
-      : baseChildren,
+    children: showRingkasan ? [...baseChildren, RINGKASAN_SUPPLIER_ITEM] : baseChildren,
   };
 }
 
@@ -187,7 +209,7 @@ function withInboundPurchasingMenu(menu: MenuItem[], role: string | undefined): 
   return menu.map((it) => (it.key === "purchasing" ? inboundPurchasingItem(role) : it));
 }
 
-/** Hilangkan menu Master Data → Supplier kecuali Superadmin (master data supplier hanya via UI Superadmin). */
+/** Sembunyikan Master Data → Supplier kecuali Superadmin */
 function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
   if (role === "SUPERADMIN") return menu;
   return menu.map((item) => {
@@ -199,6 +221,7 @@ function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | unde
   });
 }
 
+/** Sembunyikan Audit Trail untuk role yang tidak diizinkan */
 function withAuditTrailMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
   if (role && AUDIT_TRAIL_ROLES.includes(role as (typeof AUDIT_TRAIL_ROLES)[number])) {
     return menu;
@@ -206,26 +229,55 @@ function withAuditTrailMenuForRole(menu: MenuItem[], role: string | undefined): 
   return menu.filter((item) => item.key !== "audit-trail");
 }
 
-/** Menu untuk Kepala Cabang: tanpa Master Data Supplier (gunakan Ringkasan Supplier) */
+/**
+ * Sembunyikan menu Laporan untuk role yang tidak diizinkan.
+ * Jenis laporan yang ditampilkan di dalam halaman sudah difilter
+ * oleh backend (GET /v1/reports/types) — FE tidak perlu filter lagi.
+ */
+function withReportsMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  if (role && REPORTS_ROLES.includes(role as (typeof REPORTS_ROLES)[number])) {
+    return menu;
+  }
+  // Role tidak dikenal / tidak termasuk → sembunyikan menu laporan
+  return menu.filter((item) => item.key !== "reports");
+}
+
+// ─────────────────────────────────────────────
+//  Main export
+// ─────────────────────────────────────────────
+
 export function getMainMenuForRole(role: string | undefined): MenuItem[] {
+  // ── Kepala Cabang: menu terbatas ──
   if (role === "KEPALA_CABANG") {
     return [
-      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
-      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      { key: "home",      label: "Home",      icon: HiOutlineHome,          href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
       inboundPurchasingItem(role),
-      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+      REPORTS_MENU,
     ];
   }
+
+  // ── SBB Staff: menu terbatas ──
   if (role === "SBB_STAFF") {
     return [
-      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
-      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare, children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      { key: "home",      label: "Home",      icon: HiOutlineHome,          href: "/home" },
+      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
       inboundPurchasingItem(role),
-      { key: "reports", label: "Laporan", icon: LuChartBar, children: [{ key: "report-list", label: "Daftar Laporan", href: "/reports" }] },
+      REPORTS_MENU,
     ];
   }
-  return withAuditTrailMenuForRole(
-    withMasterDataSupplierMenuForRole(withInboundPurchasingMenu(mainMenu, role), role),
+
+  // ── Semua role lain: full menu dengan filter bertahap ──
+  return withReportsMenuForRole(
+    withAuditTrailMenuForRole(
+      withMasterDataSupplierMenuForRole(
+        withInboundPurchasingMenu(mainMenu, role),
+        role
+      ),
+      role
+    ),
     role
   );
 }
