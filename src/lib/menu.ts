@@ -81,7 +81,11 @@ export const mainMenu: MenuItem[] = [
     key: "cold-storage",
     label: "Cold Storage",
     icon: LuSnowflake,
-    href: "/cold-storage",
+    children: [
+      { key: "cs-monitor", label: "Monitor Stok", href: "/cold-storage" },
+      { key: "cs-assign", label: "Penentuan Lokasi", href: "/cold-storage/assign-location" },
+      { key: "cs-disposal", label: "Disposal", href: "/cold-storage/disposal" },
+    ],
   },
   {
     key: "stock-outbound",
