@@ -87,8 +87,8 @@ export const mainMenu: MenuItem[] = [
     label: "Expired Alert & Notification",
     icon: HiOutlineExclamationTriangle,
     children: [
-      { key: "expired-alert-dashboard", label: "Monitor",                  href: "/expired-alert" },
-      { key: "expired-alert-config",    label: "Konfigurasi Shelf Life",   href: "/expired-alert/config" },
+      { key: "expired-alert-dashboard", label: "Monitor", href: "/expired-alert" },
+      { key: "expired-alert-config", label: "Konfigurasi Shelf Life", href: "/expired-alert/config" },
     ],
   },
   {
@@ -115,10 +115,10 @@ export const mainMenu: MenuItem[] = [
     label: "Pengeluaran Stok",
     icon: LuPackageOpen,
     children: [
-      { key: "so-receiving",      label: "Penerimaan Sales Order", href: "/stock-outbound/penerimaan-sales-order" },
-      { key: "pallet-allocation", label: "Data Batch Alokasi",     href: "/stock-outbound/alokasi-pallet" },
-      { key: "fefo-transaction",  label: "Transaksi FEFO",         href: "/stock-outbound/transaksi-fefo" },
-      { key: "export-docs",       label: "Dokumen Ekspor",         href: "/stock-outbound/dokumen-ekspor" },
+      { key: "so-receiving", label: "Penerimaan Sales Order", href: "/stock-outbound/penerimaan-sales-order" },
+      { key: "pallet-allocation", label: "Data Batch Alokasi", href: "/stock-outbound/alokasi-pallet" },
+      { key: "fefo-transaction", label: "Transaksi FEFO", href: "/stock-outbound/transaksi-fefo" },
+      { key: "export-docs", label: "Dokumen Ekspor", href: "/stock-outbound/dokumen-ekspor" },
     ],
   },
   {
@@ -126,8 +126,8 @@ export const mainMenu: MenuItem[] = [
     label: "Order Ikan",
     icon: HiOutlineShoppingCart,
     children: [
-      { key: "order-quotation",   label: "Quotation",       href: "/quotations" },
-      { key: "order-rekap",       label: "Rekap Penjualan", href: "/sales-rekap" },
+      { key: "order-quotation", label: "Quotation", href: "/quotations" },
+      { key: "order-rekap", label: "Rekap Penjualan", href: "/sales-rekap" },
     ],
   },
   {
@@ -142,7 +142,7 @@ export const mainMenu: MenuItem[] = [
     icon: LuChartBar,
     children: [
       { key: "report-generate", label: "Generate Laporan", href: "/reports" },
-      { key: "report-history",  label: "Riwayat Laporan",  href: "/reports/history" },
+      { key: "report-history", label: "Riwayat Laporan", href: "/reports/history" },
     ],
   },
 ];
@@ -182,7 +182,6 @@ const REPORTS_MENU: MenuItem = {
   icon: LuChartBar,
   children: [
     { key: "report-generate", label: "Generate Laporan", href: "/reports" },
-    { key: "report-history",  label: "Riwayat Laporan",  href: "/reports/history" },
   ],
 };
 
@@ -254,9 +253,11 @@ export function getMainMenuForRole(role: string | undefined): MenuItem[] {
   // ── Kepala Cabang: menu terbatas ──
   if (role === "KEPALA_CABANG") {
     return [
-      { key: "home",      label: "Home",      icon: HiOutlineHome,          href: "/home" },
-      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
-        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      {
+        key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }]
+      },
       inboundPurchasingItem(role),
       REPORTS_MENU,
     ];
@@ -265,9 +266,11 @@ export function getMainMenuForRole(role: string | undefined): MenuItem[] {
   // ── SBB Staff: menu terbatas ──
   if (role === "SBB_STAFF") {
     return [
-      { key: "home",      label: "Home",      icon: HiOutlineHome,          href: "/home" },
-      { key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
-        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }] },
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      {
+        key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }]
+      },
       inboundPurchasingItem(role),
       REPORTS_MENU,
     ];
