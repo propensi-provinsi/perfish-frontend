@@ -10,7 +10,7 @@ import {
 } from "react-icons/hi2";
 import Button from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
-import { getAuditLogs, getEntityAuditTrail, getAllEntitiesByType, type AuditLogQuery } from "@/lib/audit-api";
+import { getAuditLogs, getEntityAuditTrail, getAllEntitiesByType, getAuditUsers, type AuditLogQuery } from "@/lib/audit-api";
 import type { AuditLogData, AuditLogPageData } from "@/types";
 
 type TabKey = "logs" | "entity";
@@ -40,7 +40,8 @@ const ACTION_OPTIONS = [
   { value: "DELETE", label: "Delete" },
   { value: "STATUS_CHANGE", label: "Status change" },
   { value: "WEIGHT_CORRECTION", label: "Weight correction" },
-  { value: "LOCATION_CHANGE", label: "Location change" },
+  { value: "BATCH_STORAGE_LOCATION", label: "Pemindahan Batch" },
+  { value: "BATCH_DISPOSAL", label: "Disposal Batch" },
   { value: "QC_APPROVAL", label: "QC approval" },
   { value: "MASTER_DATA_CHANGE", label: "Master data change" },
 ];
@@ -62,8 +63,25 @@ function changeLabel(item: AuditLogData) {
   return humanize(item.fieldName);
 }
 
-function entityTypeLabel(item: AuditLogData) {
-  return humanize(item.entityType);
+function activityLabel(item: AuditLogData) {
+  switch (item.entityType) {
+    case "MASTER_BATCH":
+      return "Master Batch";
+    case "BATCH_STORAGE_LOCATION":
+      return "Pemindahan Batch";
+    case "BATCH_DISPOSAL":
+      return "Batch Disposal";
+    case "MASTER_COLD_STORAGE":
+      return "Master Cold Storage";
+    case "MASTER_STORAGE_BLOCK":
+      return "Master Storage Block";
+    case "MASTER_STORAGE_RACK":
+      return "Master Storage Rack";
+    case "MASTER_STORAGE_POSITION":
+      return "Master Storage Position";
+    default:
+      return humanize(item.entityType);
+  }
 }
 
 function entityNameLabel(item: AuditLogData) {
@@ -78,7 +96,7 @@ function AuditLogTable({ rows, emptyLabel }: { rows: AuditLogData[]; emptyLabel:
         <thead className="bg-gray-50 dark:bg-dark-section">
           <tr>
             {[
-              "Tipe Entity",
+              "Aktivitas",
               "Nama Entity",
               "Atribut",
               "Nilai Lama",
@@ -106,7 +124,7 @@ function AuditLogTable({ rows, emptyLabel }: { rows: AuditLogData[]; emptyLabel:
             rows.map((row) => (
               <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                 <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-                  {entityTypeLabel(row)}
+                  {activityLabel(row)}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200">
                   <div className="font-medium">{entityNameLabel(row)}</div>
@@ -161,6 +179,7 @@ export default function AuditTrailDashboard() {
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(10);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [allUsers, setAllUsers] = useState<Array<{ value: string; label: string }>>([]);
 
   const filters = useMemo<AuditLogQuery>(() => ({
     userId: userId || undefined,
@@ -173,7 +192,7 @@ export default function AuditTrailDashboard() {
     sort: `timestamp,${sortOrder}`,
   }), [userId, filterEntityType, actionType, startDate, endDate, page, size, sortOrder]);
 
-  const userOptions = useMemo(() => {
+  const fallbackUserOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const row of logsPage?.content ?? []) {
       if (!row.userId) continue;
@@ -181,6 +200,8 @@ export default function AuditTrailDashboard() {
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [logsPage]);
+
+  const userOptions = allUsers.length > 0 ? allUsers : fallbackUserOptions;
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -194,6 +215,19 @@ export default function AuditTrailDashboard() {
       setLoading(false);
     }
   }, [filters]);
+
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const users = await getAuditUsers();
+        setAllUsers((users ?? []).map((item) => ({ value: item.id, label: item.name || item.id })));
+      } catch {
+        setAllUsers([]);
+      }
+    }
+
+    void loadUsers();
+  }, []);
 
   async function loadEntityOptions(selectedEntityType: string) {
     setEntityOptionsLoading(true);

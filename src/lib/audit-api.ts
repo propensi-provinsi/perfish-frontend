@@ -45,3 +45,10 @@ export async function getAllEntitiesByType(entityType: string) {
   );
   return data.data;
 }
+
+export async function getAuditUsers() {
+  const { data } = await apiClient.get<ApiResponse<EntityOption[]>>(
+    "/v1/audit-logs/users"
+  );
+  return data.data;
+}
