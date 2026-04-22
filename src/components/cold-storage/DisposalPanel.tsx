@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import {
   disposeBatch,
   listColdStorageStocks,
   listDisposalHistory,
 } from "@/lib/coldstorage-api";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import type {
   ColdStorageStockRow,
   DisposalResponse,
@@ -22,8 +22,6 @@ import type {
  * - Menampilkan pesan sukses "Disposal berhasil dicatat".
  */
 export default function DisposalPanel() {
-  const router = useRouter();
-
   const [expiredStocks, setExpiredStocks] = useState<ColdStorageStockRow[]>([]);
   const [history, setHistory] = useState<DisposalResponse[]>([]);
 
@@ -98,17 +96,15 @@ export default function DisposalPanel() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header>
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Disposal Stok Expired</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            E05-PBI-05: Catat pembuangan stok yang telah melewati masa simpan.
+            Catat pembuangan stok yang telah melewati masa simpan.
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/cold-storage")}>
-          Kembali
-        </Button>
       </header>
+      <ColdStorageModuleNav />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -156,7 +152,7 @@ export default function DisposalPanel() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-500">
-                Jumlah Dibuang <span className="text-red-500">*</span>
+                Jumlah Dibuang (kg) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -167,9 +163,12 @@ export default function DisposalPanel() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
                 required
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Diisi dalam kilogram (kg), tidak melebihi sisa stok yang ditampilkan.
+              </p>
             </div>
             <div className="flex items-end text-sm text-gray-500">
-              {selectedBatch?.unit ? `Unit: ${selectedBatch.unit}` : ""}
+              {selectedBatch?.unit ? `Unit stok batch: ${selectedBatch.unit}` : ""}
             </div>
           </div>
 
@@ -189,7 +188,11 @@ export default function DisposalPanel() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="submit" disabled={!canSubmit}>
+            <Button
+              type="submit"
+              disabled={!canSubmit}
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-500/40"
+            >
               {submitting ? "Menyimpan..." : "Dispose"}
             </Button>
           </div>

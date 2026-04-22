@@ -1,0 +1,153 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import AppShell from "@/components/layout/AppShell";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
+import { getColdStorageStructureDetail } from "@/lib/coldstorage-api";
+import type { ColdStorageStructureDetail } from "@/types/coldstorage";
+
+function ColdStorageStructureDetailInner() {
+  const params = useParams();
+  const id = Number(params.id);
+  const [data, setData] = useState<ColdStorageStructureDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(id)) return;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const d = await getColdStorageStructureDetail(id);
+        setData(d);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Gagal memuat detail");
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Link href="/cold-storage/structure" className="text-sm text-cyan hover:underline">
+            ← Kembali ke daftar
+          </Link>
+          <h1 className="mt-2 text-2xl font-bold text-navy dark:text-white">
+            {data ? `${data.csCode} — ${data.csName}` : "Detail Cold Storage"}
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Block, rack, dan posisi (aktif) pada gudang ini.
+          </p>
+        </div>
+      </div>
+      <ColdStorageModuleNav />
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
+      {loading && <p className="text-sm text-gray-500">Memuat...</p>}
+
+      {!loading && data && (
+        <>
+          <section className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-dark-card md:grid-cols-4">
+            <div>
+              <p className="text-xs text-gray-500">Block aktif</p>
+              <p className="text-lg font-semibold tabular-nums">{data.blockCount}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Rack aktif</p>
+              <p className="text-lg font-semibold tabular-nums">{data.rackCount}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Posisi aktif</p>
+              <p className="text-lg font-semibold tabular-nums">{data.positionCount}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Per status posisi</p>
+              <p className="flex flex-wrap gap-1.5 text-xs">
+                {Object.entries(data.positionCountByStatus ?? {}).length === 0 ? (
+                  <span className="text-gray-500">—</span>
+                ) : (
+                  Object.entries(data.positionCountByStatus ?? {}).map(([k, v]) => (
+                    <span key={k} className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 dark:bg-gray-800">
+                      <PositionStatusBadge status={k} />
+                      <span className="tabular-nums text-gray-600 dark:text-gray-300">{v}</span>
+                    </span>
+                  ))
+                )}
+              </p>
+            </div>
+          </section>
+
+          <div className="space-y-6">
+            {data.blocks?.map((block) => (
+              <section
+                key={block.blockId}
+                className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card"
+              >
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {block.blockCode} — {block.blockName}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {block.blockCapacity != null && block.blockCapacity > 0
+                    ? `Kapasitas block (maks. rack): ${block.blockCapacity}`
+                    : `Rack terpasang: ${block.racks?.length ?? 0}`}
+                </p>
+                <div className="mt-4 space-y-4">
+                  {(block.racks ?? []).map((rack) => (
+                    <div key={rack.rackId} className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                      <h3 className="font-medium text-gray-800 dark:text-gray-200">{rack.rackCode}</h3>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="min-w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-gray-500">
+                              <th className="py-1 pr-3">Kode posisi</th>
+                              <th className="py-1 pr-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(rack.positions ?? []).map((p) => (
+                              <tr key={p.positionId} className="border-t border-gray-50 dark:border-gray-800">
+                                <td className="py-1 pr-3 font-mono">{p.positionCode}</td>
+                                <td className="py-1 pr-3">
+                                  <PositionStatusBadge status={p.status} />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {(rack.positions ?? []).length === 0 && (
+                          <p className="text-xs text-gray-400">Tidak ada posisi aktif.</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function ColdStorageStructureDetailPage() {
+  return (
+    <ProtectedRoute>
+      <AppShell>
+        <ColdStorageStructureDetailInner />
+      </AppShell>
+    </ProtectedRoute>
+  );
+}

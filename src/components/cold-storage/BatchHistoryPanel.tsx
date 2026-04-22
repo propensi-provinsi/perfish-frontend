@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
-import Button from "@/components/ui/Button";
 import { listBatchMoveHistory } from "@/lib/coldstorage-api";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import type { ApiResponse } from "@/types";
 import type { AssignLocationResponse } from "@/types/coldstorage";
 
@@ -16,8 +15,6 @@ interface MasterBatchOption {
 }
 
 export default function BatchHistoryPanel() {
-  const router = useRouter();
-
   const [loading, setLoading] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,15 +63,15 @@ export default function BatchHistoryPanel() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header>
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Histori Perpindahan Batch</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Audit perpindahan lokasi batch secara kronologis.
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/cold-storage")}>Kembali</Button>
       </header>
+      <ColdStorageModuleNav />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

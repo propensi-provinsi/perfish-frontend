@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
-import { assignLocation, listStorageAreaOptions } from "@/lib/coldstorage-api";
+import { assignLocation, getAssignLocationContext, listStorageAreaOptions } from "@/lib/coldstorage-api";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import type { ApiResponse, ColdStorageData } from "@/types";
 import type {
   AssignLocationRequest,
@@ -30,8 +30,6 @@ interface MasterBatchOption {
  * - Notifikasi sukses muncul setelah berhasil.
  */
 export default function AssignLocationForm() {
-  const router = useRouter();
-
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
   const [batches, setBatches] = useState<MasterBatchOption[]>([]);
 
@@ -43,6 +41,9 @@ export default function AssignLocationForm() {
     new Date().toISOString().slice(0, 10)
   );
   const [notes, setNotes] = useState("");
+  const [warehouseLocked, setWarehouseLocked] = useState(false);
+  /** yyyy-MM-dd — batas minimum tanggal masuk jika batch punya inbound */
+  const [inboundReceiptDate, setInboundReceiptDate] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -55,7 +56,7 @@ export default function AssignLocationForm() {
       try {
         const [coldStorageData, batchResp] = await Promise.all([
           getColdStorages(),
-          apiClient.get<ApiResponse<MasterBatchOption[]>>("/v1/batch/master-batches"),
+          apiClient.get<ApiResponse<MasterBatchOption[]>>("/v1/coldstorage/assignable-batches"),
         ]);
         setColdStorages(coldStorageData.filter((cs) => cs.isActive));
         setBatches(batchResp.data.data ?? []);
@@ -69,14 +70,43 @@ export default function AssignLocationForm() {
   }, []);
 
   useEffect(() => {
+    async function applyBatchContext() {
+      if (!batchId) {
+        setWarehouseLocked(false);
+        setWarehouseId("");
+        setStorageAreas([]);
+        setStorageAreaId("");
+        setInboundReceiptDate(null);
+        return;
+      }
+      try {
+        const ctx = await getAssignLocationContext(Number(batchId));
+        setWarehouseLocked(ctx.warehouseLocked);
+        setInboundReceiptDate(ctx.inboundReceiptDate ?? null);
+        if (ctx.warehouseLocked && ctx.inboundColdStorageId != null) {
+          setWarehouseId(ctx.inboundColdStorageId);
+        } else if (!ctx.warehouseLocked) {
+          setWarehouseId("");
+        }
+        setStorageAreaId("");
+      } catch (err) {
+        setWarehouseLocked(false);
+        setInboundReceiptDate(null);
+        setError(err instanceof Error ? err.message : "Gagal memuat konteks batch");
+      }
+    }
+    void applyBatchContext();
+  }, [batchId]);
+
+  useEffect(() => {
     async function loadStorageAreas() {
-      if (!warehouseId) {
+      if (!warehouseId || !batchId) {
         setStorageAreas([]);
         setStorageAreaId("");
         return;
       }
       try {
-        const options = await listStorageAreaOptions(Number(warehouseId));
+        const options = await listStorageAreaOptions(Number(warehouseId), Number(batchId));
         setStorageAreas(options);
         setStorageAreaId("");
       } catch (err) {
@@ -86,7 +116,7 @@ export default function AssignLocationForm() {
       }
     }
     void loadStorageAreas();
-  }, [warehouseId]);
+  }, [warehouseId, batchId]);
 
   const canSubmit = useMemo(
     () => !!batchId && !!warehouseId && !!storageAreaId && !!tanggalMasuk && !submitting,
@@ -96,6 +126,12 @@ export default function AssignLocationForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
+    if (inboundReceiptDate && tanggalMasuk < inboundReceiptDate) {
+      setError(
+        `Tanggal masuk tidak boleh sebelum tanggal penerimaan inbound (${inboundReceiptDate}).`
+      );
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -114,6 +150,8 @@ export default function AssignLocationForm() {
       );
       setBatchId("");
       setWarehouseId("");
+      setWarehouseLocked(false);
+      setInboundReceiptDate(null);
       setStorageAreaId("");
       setNotes("");
     } catch (err) {
@@ -127,17 +165,13 @@ export default function AssignLocationForm() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-navy dark:text-white">Penentuan Lokasi Penyimpanan Batch</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            E05-PBI-01: Tetapkan gudang dan area penyimpanan pada batch yang aktif.
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => router.push("/cold-storage")}>
-          Kembali
-        </Button>
+      <header>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">Penentuan Lokasi Penyimpanan Batch</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Menetapkan area penyimpanan pada batch
+        </p>
       </header>
+      <ColdStorageModuleNav />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -151,7 +185,9 @@ export default function AssignLocationForm() {
       <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Batch</label>
+            <label className="mb-1 block text-xs font-medium text-gray-500">
+              Batch <span className="text-red-500">*</span>
+            </label>
             <select
               value={batchId}
               onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : "")}
@@ -170,12 +206,14 @@ export default function AssignLocationForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Gudang (Warehouse ID)</label>
+            <label className="mb-1 block text-xs font-medium text-gray-500">
+              Gudang <span className="text-red-500">*</span>
+            </label>
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
-              disabled={loading}
+              disabled={loading || warehouseLocked}
               required
             >
               <option value="">Pilih gudang aktif...</option>
@@ -185,6 +223,12 @@ export default function AssignLocationForm() {
                 </option>
               ))}
             </select>
+            {warehouseLocked && (
+              <p className="mt-1 text-xs text-gray-500">
+                Gudang mengikuti cold storage pada penerimaan inbound. Perubahan gudang dilakukan melalui menu Pemindahan
+                Batch.
+              </p>
+            )}
           </div>
 
           <div>
@@ -196,10 +240,10 @@ export default function AssignLocationForm() {
               onChange={(e) => setStorageAreaId(e.target.value ? Number(e.target.value) : "")}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
               required
-              disabled={!warehouseId || loading}
+              disabled={!warehouseId || !batchId || loading}
             >
               <option value="">
-                {warehouseId ? "Pilih storage area..." : "Pilih gudang dulu..."}
+                {warehouseId ? "Pilih storage area..." : "Pilih gudang terlebih dahulu"}
               </option>
               {storageAreas.map((area) => (
                 <option key={area.positionId} value={area.positionId}>
@@ -210,14 +254,22 @@ export default function AssignLocationForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Tanggal Masuk</label>
+            <label className="mb-1 block text-xs font-medium text-gray-500">
+              Tanggal Masuk <span className="text-red-500">*</span>
+            </label>
             <input
               type="date"
               value={tanggalMasuk}
+              min={inboundReceiptDate ?? undefined}
               onChange={(e) => setTanggalMasuk(e.target.value)}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
               required
             />
+            {inboundReceiptDate && (
+              <p className="mt-1 text-xs text-gray-500">
+                Minimal mengikuti tanggal penerimaan inbound: <b>{inboundReceiptDate}</b>.
+              </p>
+            )}
           </div>
         </div>
 
@@ -229,12 +281,16 @@ export default function AssignLocationForm() {
             rows={3}
             maxLength={500}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
-            placeholder="Keterangan tambahan terkait pemindahan..."
+            placeholder="Keterangan tambahan"
           />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="submit" disabled={!canSubmit}>
+          <Button
+            type="submit"
+            disabled={!canSubmit}
+            className="bg-cyan text-white hover:bg-cyan-hover focus:ring-cyan/40"
+          >
             {submitting ? "Menyimpan..." : "Simpan Lokasi"}
           </Button>
         </div>

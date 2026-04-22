@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks } from "@/lib/coldstorage-api";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import type {
   ColdStorageData,
   ColdStorageStockRow,
@@ -37,8 +37,7 @@ function statusBadgeClass(status: StockCategoryStatus) {
 
 /**
  * Dashboard monitoring stok cold storage (E05-PBI-02).
- * Menampilkan tabel stok dengan filter gudang & kategori status, plus
- * tombol cepat ke form Penentuan Lokasi (E05-PBI-01) dan Disposal (E05-PBI-05).
+ * Menampilkan tabel stok dengan filter gudang & kategori status.
  */
 export default function ColdStorageDashboard() {
   const [loading, setLoading] = useState(true);
@@ -86,12 +85,18 @@ export default function ColdStorageDashboard() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-navy dark:text-white">Cold Storage Monitor</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Monitoring stok per gudang dan batch, umur simpan dihitung otomatis setiap hari.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-navy dark:text-white">Cold Storage Monitor</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Monitoring stok per gudang dan batch, umur simpan dihitung otomatis setiap hari.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
+          Refresh
+        </Button>
       </header>
+      <ColdStorageModuleNav />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -99,74 +104,42 @@ export default function ColdStorageDashboard() {
         </div>
       )}
 
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+        <div className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Filter</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr]">
+          <select
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+          >
+            <option value="">Semua Gudang</option>
+            {coldStorages.map((cs) => (
+              <option key={cs.coldStorageId} value={cs.coldStorageId}>
+                {cs.csCode} — {cs.csName}
+              </option>
+            ))}
+          </select>
+          <select
+            value={kategoriStatus}
+            onChange={(e) => setKategoriStatus((e.target.value as StockCategoryStatus) || "")}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+          >
+            <option value="">Semua Status</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <SummaryCard title="Total" value={rows.length} tone="slate" />
         <SummaryCard title="Fresh" value={summary.FRESH} tone="green" />
         <SummaryCard title="Warning" value={summary.WARNING} tone="yellow" />
         <SummaryCard title="Expired" value={summary.EXPIRED} tone="red" />
         <SummaryCard title="Quarantine" value={summary.QUARANTINE} tone="slate" />
-      </section>
-
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filter & Aksi</h2>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/cold-storage/assign-location">
-              <Button size="sm">Tetapkan Lokasi Batch</Button>
-            </Link>
-            <Link href="/cold-storage/move-batch">
-              <Button size="sm" variant="outline">
-                Move Batch
-              </Button>
-            </Link>
-            <Link href="/cold-storage/batch-history">
-              <Button size="sm" variant="outline">
-                Histori Batch
-              </Button>
-            </Link>
-            <Link href="/cold-storage/disposal">
-              <Button size="sm" variant="outline">
-                Disposal
-              </Button>
-            </Link>
-            <Button size="sm" variant="outline" onClick={() => void loadData()} disabled={loading}>
-              Refresh
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Gudang</label>
-            <select
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
-            >
-              <option value="">Semua Gudang</option>
-              {coldStorages.map((cs) => (
-                <option key={cs.coldStorageId} value={cs.coldStorageId}>
-                  {cs.csCode} — {cs.csName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Kategori Status</label>
-            <select
-              value={kategoriStatus}
-              onChange={(e) => setKategoriStatus((e.target.value as StockCategoryStatus) || "")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
-            >
-              <option value="">Semua Status</option>
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
@@ -229,9 +202,6 @@ export default function ColdStorageDashboard() {
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-xs text-gray-500">
-          Data tidak dapat dihapus langsung dari halaman ini — gunakan menu Disposal untuk stok yang sudah expired.
-        </p>
       </section>
     </div>
   );

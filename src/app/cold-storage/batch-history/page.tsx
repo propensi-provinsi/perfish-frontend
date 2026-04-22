@@ -1,3 +1,5 @@
+"use client";
+
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import BatchHistoryPanel from "@/components/cold-storage/BatchHistoryPanel";

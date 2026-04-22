@@ -7,10 +7,13 @@
 import apiClient from "./api";
 import type { ApiResponse } from "@/types/api";
 import type {
+  AssignLocationContextResponse,
   AssignLocationRequest,
   AssignLocationResponse,
   BatchHistoryResponse,
   ColdStorageStockRow,
+  ColdStorageStructureDetail,
+  ColdStorageStructureSummary,
   DisposalRequest,
   DisposalResponse,
   MoveBatchRequest,
@@ -41,10 +44,22 @@ export async function listActiveLocations(warehouseId?: number) {
   return unwrap(resp);
 }
 
-export async function listStorageAreaOptions(warehouseId: number) {
+export async function listStorageAreaOptions(warehouseId: number, batchId?: number) {
   const resp = await apiClient.get<ApiResponse<StorageAreaOption[]>>(
     `${BASE}/storage-areas`,
-    { params: { warehouseId } }
+    {
+      params: {
+        warehouseId,
+        ...(batchId !== undefined && batchId !== null ? { batchId } : {}),
+      },
+    }
+  );
+  return unwrap(resp);
+}
+
+export async function getAssignLocationContext(batchId: number) {
+  const resp = await apiClient.get<ApiResponse<AssignLocationContextResponse>>(
+    `${BASE}/batches/${batchId}/assign-context`
   );
   return unwrap(resp);
 }
@@ -97,7 +112,21 @@ export async function listBatchMoveHistory(batchId: number) {
 
 export async function getBatchHistory(batchId: number) {
   const resp = await apiClient.get<ApiResponse<BatchHistoryResponse>>(
-    `/storage/batch/${batchId}/history`
+    `${BASE}/batch/${batchId}/history`
+  );
+  return unwrap(resp);
+}
+
+export async function listColdStorageStructureSummaries() {
+  const resp = await apiClient.get<ApiResponse<ColdStorageStructureSummary[]>>(
+    `${BASE}/structure`
+  );
+  return unwrap(resp);
+}
+
+export async function getColdStorageStructureDetail(coldStorageId: number) {
+  const resp = await apiClient.get<ApiResponse<ColdStorageStructureDetail>>(
+    `${BASE}/structure/${coldStorageId}`
   );
   return unwrap(resp);
 }

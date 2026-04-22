@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
 import {
@@ -9,6 +8,7 @@ import {
   listStorageAreaOptions,
   moveBatch,
 } from "@/lib/coldstorage-api";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import type { ColdStorageData } from "@/types";
 import type {
   AssignLocationResponse,
@@ -17,8 +17,6 @@ import type {
 } from "@/types/coldstorage";
 
 export default function MoveBatchForm() {
-  const router = useRouter();
-
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +68,7 @@ export default function MoveBatchForm() {
   }, [batchId]);
 
   useEffect(() => {
-    if (!targetWarehouseId) {
+    if (!targetWarehouseId || batchId === "") {
       setTargetAreas([]);
       setTargetAreaId("");
       return;
@@ -78,7 +76,7 @@ export default function MoveBatchForm() {
 
     async function loadTargetAreas() {
       try {
-        const rows = await listStorageAreaOptions(Number(targetWarehouseId));
+        const rows = await listStorageAreaOptions(Number(targetWarehouseId), Number(batchId));
         const sourcePositionId = selectedLocation?.storageAreaId;
         setTargetAreas(rows.filter((area) => area.positionId !== sourcePositionId));
         setTargetAreaId("");
@@ -90,7 +88,7 @@ export default function MoveBatchForm() {
     }
 
     void loadTargetAreas();
-  }, [selectedLocation?.storageAreaId, targetWarehouseId]);
+  }, [selectedLocation?.storageAreaId, targetWarehouseId, batchId]);
 
   const canSubmit = useMemo(
     () => !!selectedLocation && !!targetAreaId && !submitting,
@@ -139,15 +137,15 @@ export default function MoveBatchForm() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header>
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Pemindahan Batch Antar Gudang</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Pilih batch aktif, cek lokasi asal otomatis, lalu pilih lokasi tujuan untuk menyimpan histori perpindahan.
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/cold-storage")}>Kembali</Button>
       </header>
+      <ColdStorageModuleNav />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -245,7 +243,11 @@ export default function MoveBatchForm() {
         </div>
 
         <div className="flex justify-end">
-          <Button type="submit" disabled={!canSubmit}>
+          <Button
+            type="submit"
+            disabled={!canSubmit}
+            className="bg-cyan text-white hover:bg-cyan-hover focus:ring-cyan/40"
+          >
             {submitting ? "Memindahkan..." : "Move Batch"}
           </Button>
         </div>

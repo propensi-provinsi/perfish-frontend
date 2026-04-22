@@ -245,16 +245,38 @@ export default function MasterDataShell({ title, subtitle, entities }: Props) {
 
     // status field → badge
     if (col.key === "status") {
-      const s = String(val ?? "").toUpperCase();
+      const s = String(val ?? "").trim().toUpperCase();
       const map: Record<string, { bg: string; text: string; label: string }> = {
-        AVAILABLE:   { bg: "bg-green/10",  text: "text-green",  label: "Available" },
-        OCCUPIED:    { bg: "bg-yellow/10", text: "text-yellow", label: "Occupied" },
-        RESERVED:    { bg: "bg-cyan/10",   text: "text-cyan",   label: "Reserved" },
-        MAINTENANCE: { bg: "bg-red/10",    text: "text-red",    label: "Maintenance" },
+        AVAILABLE: {
+          bg: "bg-emerald-100 dark:bg-emerald-900/45",
+          text: "text-emerald-800 dark:text-emerald-100",
+          label: "AVAILABLE",
+        },
+        OCCUPIED: {
+          bg: "bg-orange-100 dark:bg-orange-900/45",
+          text: "text-orange-800 dark:text-orange-100",
+          label: "OCCUPIED",
+        },
+        RESERVED: {
+          bg: "bg-cyan/15 dark:bg-cyan/25",
+          text: "text-cyan dark:text-cyan",
+          label: "RESERVED",
+        },
+        MAINTENANCE: {
+          bg: "bg-red/15 dark:bg-red/25",
+          text: "text-red dark:text-red-200",
+          label: "MAINTENANCE",
+        },
       };
-      const style = map[s] ?? { bg: "bg-gray-100", text: "text-gray-600", label: String(val) };
+      const style = map[s] ?? {
+        bg: "bg-gray-100 dark:bg-gray-700",
+        text: "text-gray-700 dark:text-gray-200",
+        label: String(val ?? "—"),
+      };
       return (
-        <span className={`inline-flex rounded-full ${style.bg} px-2.5 py-0.5 text-xs font-medium ${style.text}`}>
+        <span
+          className={`inline-flex rounded-full ${style.bg} px-2.5 py-0.5 text-xs font-semibold ${style.text} dark:ring-1 dark:ring-white/10`}
+        >
           {style.label}
         </span>
       );
