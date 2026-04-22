@@ -159,8 +159,17 @@ export default function TransaksiFefoPage() {
 
       setLoadingReadinessIds([]);
 
-      const openSo = soData.find((item) => isOpenSalesOrderStatus(item.salesOrderStatus));
-      setSelectedSoId((prev) => prev ?? openSo?.soId ?? null);
+      const actionableSo = soData.filter(
+        (item) =>
+          isOpenSalesOrderStatus(item.salesOrderStatus) &&
+          (Boolean(item.allocatable) || Boolean(item.deallocatable))
+      );
+      setSelectedSoId((prev) => {
+        if (prev != null && actionableSo.some((item) => item.soId === prev)) {
+          return prev;
+        }
+        return actionableSo[0]?.soId ?? null;
+      });
       setSelectedShipmentId((prev) => prev ?? shipmentData[0]?.shipmentId ?? null);
     } catch {
       setError("Gagal memuat data transaksi outbound.");
@@ -238,6 +247,11 @@ export default function TransaksiFefoPage() {
     [salesOrders]
   );
 
+  const actionableSalesOrders = useMemo(
+    () => openSalesOrders.filter((item) => Boolean(item.allocatable) || Boolean(item.deallocatable)),
+    [openSalesOrders]
+  );
+
   const sortedFefoBatches = useMemo(() => {
     return [...fefoBatches]
       .filter((item) => item.currentQuantity > 0)
@@ -248,7 +262,7 @@ export default function TransaksiFefoPage() {
       });
   }, [fefoBatches]);
 
-  const selectedSo = openSalesOrders.find((item) => item.soId === selectedSoId) ?? null;
+  const selectedSo = actionableSalesOrders.find((item) => item.soId === selectedSoId) ?? null;
 
   useEffect(() => {
     const firstItem = selectedSo?.criteria?.[0];
@@ -620,14 +634,14 @@ export default function TransaksiFefoPage() {
       {tab === "proses" ? (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <article className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
-            <h2 className="text-base font-semibold text-navy dark:text-white">1. Pilih Sales Order OPEN</h2>
+            <h2 className="text-base font-semibold text-navy dark:text-white">1. Pilih Sales Order yang Masih Bisa Diproses</h2>
             <select
               value={selectedSoId ?? ""}
               onChange={(event) => setSelectedSoId(event.target.value ? Number(event.target.value) : null)}
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
             >
               <option value="">Pilih Sales Order</option>
-              {openSalesOrders.map((item) => (
+              {actionableSalesOrders.map((item) => (
                 <option key={item.soId} value={item.soId}>
                   {item.soNumber} - {item.customerName}
                 </option>

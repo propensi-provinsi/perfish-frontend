@@ -25,6 +25,9 @@ export interface SalesOrderOutboundSummary {
   totalAllocatedKg: number;
   remainingKg: number;
   fullyAllocated: boolean;
+  allocatable: boolean;
+  deallocatable: boolean;
+  locked: boolean;
   criteria: {
     quotationItemId: number;
     batchId: number;

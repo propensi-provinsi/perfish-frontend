@@ -529,14 +529,14 @@ export default function Dashboard() {
 
               <DataTableCard
                 title="Top Weight Discrepancy"
-                columns={["Batch", "Species", "Inbound", "Outbound", "Shrink %"]}
+                columns={["Batch", "Species", "Inbound Approved", "Current Cold Storage", "Shrink %"]}
               >
                 {discrepancyRows.slice(0, 12).map((row) => (
                   <tr key={asString(row.batchId)} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="px-3 py-2">{asString(row.batchNumber)}</td>
                     <td className="px-3 py-2">{asString(row.species)}</td>
                     <td className="px-3 py-2">{formatKg(asNumber(row.inboundKg))}</td>
-                    <td className="px-3 py-2">{formatKg(asNumber(row.outboundKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.coldStorageKg ?? row.outboundKg))}</td>
                     <td className="px-3 py-2">{formatNumber(asNumber(row.shrinkPercent), 3)}%</td>
                   </tr>
                 ))}
