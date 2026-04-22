@@ -137,6 +137,8 @@ export interface AuditLogData {
   oldValue: string | null;
   newValue: string | null;
   actionType: string;
+  reason?: string;
+  metadata?: string;
   userId: string;
   userName: string | null;
   userEmail: string | null;
