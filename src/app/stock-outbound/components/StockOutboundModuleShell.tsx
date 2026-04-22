@@ -29,6 +29,10 @@ const tabs = [
     href: "/stock-outbound/dokumen-ekspor",
     label: "Dokumen Ekspor",
   },
+  {
+    href: "/stock-outbound/riwayat-distribusi",
+    label: "Riwayat Distribusi",
+  },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -48,7 +52,7 @@ export default function StockOutboundModuleShell({ title, description, children 
           </header>
 
           <nav className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-2">
-            <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
               {tabs.map((tab) => {
                 const active = isActive(pathname, tab.href);
                 return (
