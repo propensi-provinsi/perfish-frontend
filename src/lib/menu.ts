@@ -107,6 +107,7 @@ export const mainMenu: MenuItem[] = [
       { key: "cs-move", label: "Pemindahan Batch", href: "/cold-storage/move-batch" },
       { key: "cs-history", label: "Histori Batch", href: "/cold-storage/batch-history" },
       { key: "cs-disposal", label: "Disposal", href: "/cold-storage/disposal" },
+      { key: "cs-structure", label: "Struktur Gudang", href: "/cold-storage/structure" },
     ],
   },
   {

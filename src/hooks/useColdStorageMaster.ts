@@ -286,7 +286,11 @@ export function useStoragePosition(): MasterHookResult<StoragePositionResponse, 
     setLoading(true);
     try {
       const res = await storagePositionApi.getAll();
-      setData(res.data.data ?? []);
+      const rows = (res.data.data ?? []).map((p) => ({
+        ...p,
+        status: (p.status ?? "AVAILABLE").toString().trim().toUpperCase() as PositionStatus,
+      }));
+      setData(rows);
       setIsMock(false);
       setError(null);
     } catch (err) {

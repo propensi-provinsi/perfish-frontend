@@ -44,6 +44,62 @@ export interface AssignLocationResponse {
   createdAt: string;
 }
 
+export interface AssignLocationContextResponse {
+  batchId: number;
+  fishSpeciesId: number | null;
+  fishSpeciesName: string | null;
+  inboundColdStorageId: number | null;
+  inboundColdStorageCode: string | null;
+  inboundColdStorageName: string | null;
+  warehouseLocked: boolean;
+  /** ISO date (yyyy-MM-dd) — tanggal penerimaan inbound; tanggal masuk tidak boleh lebih awal. */
+  inboundReceiptDate?: string | null;
+}
+
+export interface ColdStorageStructureSummary {
+  coldStorageId: number;
+  csCode: string;
+  csName: string;
+  branchCode: string | null;
+  branchName: string | null;
+  isActive: boolean | null;
+  blockCount: number;
+  rackCount: number;
+  positionCount: number;
+  positionCountByStatus: Record<string, number>;
+}
+
+export interface ColdStorageStructureDetail {
+  coldStorageId: number;
+  csCode: string;
+  csName: string;
+  branchCode: string | null;
+  branchName: string | null;
+  isActive: boolean | null;
+  blockCount: number;
+  rackCount: number;
+  positionCount: number;
+  positionCountByStatus: Record<string, number>;
+  blocks: {
+    blockId: number;
+    blockCode: string;
+    blockName: string;
+    blockCapacity: number | null;
+    isActive: boolean | null;
+    racks: {
+      rackId: number;
+      rackCode: string;
+      isActive: boolean | null;
+      positions: {
+        positionId: number;
+        positionCode: string;
+        status: string | null;
+        isActive: boolean | null;
+      }[];
+    }[];
+  }[];
+}
+
 // ── E05-PBI-02: Monitoring Stock ──────────────────────────────────
 
 export interface ColdStorageStockRow {
