@@ -5,6 +5,7 @@ import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
 import type {
   AllocationSummary,
+  ExportReadiness,
   FefoBatchStock,
   SalesOrderOutboundSummary,
   Shipment,
@@ -52,6 +53,8 @@ export default function TransaksiFefoPage() {
   const [fefoBatches, setFefoBatches] = useState<FefoBatchStock[]>([]);
   const [transportModes, setTransportModes] = useState<TransportModeOption[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [readinessByShipmentId, setReadinessByShipmentId] = useState<Record<number, ExportReadiness>>({});
+  const [loadingReadinessIds, setLoadingReadinessIds] = useState<number[]>([]);
 
   const [selectedSoId, setSelectedSoId] = useState<number | null>(null);
   const [allocationSummary, setAllocationSummary] = useState<AllocationSummary | null>(null);
@@ -118,6 +121,43 @@ export default function TransaksiFefoPage() {
       setFefoBatches(batchRes.data.data ?? []);
       setTransportModes(modeRes.data.data ?? []);
       setShipments(shipmentData);
+
+      const readinessCandidates = shipmentData.filter(
+        (item) => item.isExport && nextShipmentStatus(item.status) === "DISPATCHED"
+      );
+
+      if (readinessCandidates.length === 0) {
+        setReadinessByShipmentId({});
+      } else {
+        setLoadingReadinessIds(readinessCandidates.map((item) => item.shipmentId));
+
+        const readinessResults = await Promise.all(
+          readinessCandidates.map(async (item) => {
+            try {
+              const response = await stockOutboundApi.getExportReadiness(item.shipmentId);
+              return {
+                shipmentId: item.shipmentId,
+                readiness: response.data.data ?? null,
+              };
+            } catch {
+              return {
+                shipmentId: item.shipmentId,
+                readiness: null,
+              };
+            }
+          })
+        );
+
+        const nextReadinessMap: Record<number, ExportReadiness> = {};
+        readinessResults.forEach((result) => {
+          if (result.readiness) {
+            nextReadinessMap[result.shipmentId] = result.readiness;
+          }
+        });
+        setReadinessByShipmentId(nextReadinessMap);
+      }
+
+      setLoadingReadinessIds([]);
 
       const openSo = soData.find((item) => isOpenSalesOrderStatus(item.salesOrderStatus));
       setSelectedSoId((prev) => prev ?? openSo?.soId ?? null);
@@ -479,6 +519,33 @@ export default function TransaksiFefoPage() {
       setError("Masukkan QR code batch untuk approve OUTBOUND.");
       clearAlert();
       return;
+    }
+
+    if (next === "DISPATCHED" && shipment.isExport) {
+      let readiness = readinessByShipmentId[shipment.shipmentId];
+
+      if (!readiness) {
+        try {
+          const response = await stockOutboundApi.getExportReadiness(shipment.shipmentId);
+          readiness = response.data.data ?? null;
+          if (readiness) {
+            setReadinessByShipmentId((prev) => ({
+              ...prev,
+              [shipment.shipmentId]: readiness as ExportReadiness,
+            }));
+          }
+        } catch {
+          setError("Gagal mengecek export readiness shipment.");
+          clearAlert();
+          return;
+        }
+      }
+
+      if (!readiness || readiness.readinessScore < 100 || !readiness.readyToDispatch) {
+        setError(`Shipment ekspor belum siap dispatch. Readiness saat ini ${readiness?.readinessScore ?? 0}%.`);
+        clearAlert();
+        return;
+      }
     }
 
     setUpdatingShipmentId(shipment.shipmentId);
@@ -992,6 +1059,13 @@ export default function TransaksiFefoPage() {
                 ) : (
                   shipments.map((item) => {
                     const next = nextShipmentStatus(item.status);
+                    const needsReadinessGate = next === "DISPATCHED" && item.isExport;
+                    const readiness = readinessByShipmentId[item.shipmentId];
+                    const readinessUnavailable = needsReadinessGate && !readiness;
+                    const readinessBlocked =
+                      needsReadinessGate && Boolean(readiness) && readiness.readinessScore < 100;
+                    const readinessLoading = loadingReadinessIds.includes(item.shipmentId);
+
                     return (
                       <tr
                         key={item.shipmentId}
@@ -1015,17 +1089,33 @@ export default function TransaksiFefoPage() {
                             </button>
                             <button
                               type="button"
-                              disabled={!next || updatingShipmentId === item.shipmentId}
+                              disabled={
+                                !next ||
+                                updatingShipmentId === item.shipmentId ||
+                                readinessUnavailable ||
+                                readinessBlocked
+                              }
                               onClick={() => handleAdvanceShipment(item)}
                               className="rounded-md bg-navy px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {updatingShipmentId === item.shipmentId
                                 ? "Updating..."
+                                : readinessLoading
+                                  ? "Cek readiness..."
+                                  : readinessBlocked
+                                    ? `Readiness ${readiness?.readinessScore ?? 0}%`
                                 : next
                                   ? `Lanjut ${next}`
                                   : "Selesai"}
                             </button>
                           </div>
+                          {needsReadinessGate ? (
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              {readiness
+                                ? `Readiness ekspor: ${readiness.readinessScore}%`
+                                : "Readiness ekspor belum tersedia"}
+                            </p>
+                          ) : null}
                         </td>
                       </tr>
                     );
