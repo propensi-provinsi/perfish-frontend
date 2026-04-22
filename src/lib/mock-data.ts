@@ -514,3 +514,69 @@ export const mockSupplier: MockSupplier[] = [
     updatedAt: new Date().toISOString(),
   }
 ];
+
+// ── Master Batch Domain ─────────────────────────────────────────
+
+export interface MockMasterBatch {
+  batchId: number;
+  batchNumber: string;
+  batchDate: string;
+  fishSpeciesId: number;
+  fishSpeciesName: string;
+  totalQuantity: number;
+  currentQuantity: number;
+  unit: "KG" | "TON";
+  productionDate: string;
+  expirationDate: string;
+  supplierId: string;
+  supplierName: string;
+  status: "QUARANTINE" | "AVAILABLE" | "EXPIRED" | "BLOCKED";
+  qualityGrade: "A" | "B" | "C" | "REJECT";
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export const mockMasterBatch: MockMasterBatch[] = [
+  {
+    batchId: 1,
+    batchNumber: "BATCH-202310-001",
+    batchDate: "2023-10-01",
+    fishSpeciesId: 1,
+    fishSpeciesName: "Cakalang",
+    totalQuantity: 5000,
+    currentQuantity: 4500,
+    unit: "KG",
+    productionDate: "2023-09-30",
+    expirationDate: "2024-09-30",
+    supplierId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    supplierName: "PT Nelayan Makmur",
+    status: "AVAILABLE",
+    qualityGrade: "A",
+    createdBy: "admin",
+    createdAt: new Date().toISOString(),
+    updatedBy: "admin",
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    batchId: 2,
+    batchNumber: "BATCH-202310-002",
+    batchDate: "2023-10-05",
+    fishSpeciesId: 2,
+    fishSpeciesName: "Tuna Sirip Kuning",
+    totalQuantity: 2000,
+    currentQuantity: 0,
+    unit: "KG",
+    productionDate: "2023-10-03",
+    expirationDate: "2024-10-03",
+    supplierId: "5c83f942-8c9d-4cf3-be38-51ec12345678",
+    supplierName: "Koperasi Nelayan Bakti",
+    status: "EXPIRED",
+    qualityGrade: "A",
+    createdBy: "admin",
+    createdAt: new Date().toISOString(),
+    updatedBy: "admin",
+    updatedAt: new Date().toISOString(),
+  },
+];
