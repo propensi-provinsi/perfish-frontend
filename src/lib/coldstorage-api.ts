@@ -68,12 +68,20 @@ export async function listColdStorageStocks(params?: {
   warehouseId?: number;
   kategoriStatus?: StockCategoryStatus;
 }) {
+  const queryParams: Record<string, number | StockCategoryStatus> = {};
+
+  if (params?.warehouseId !== undefined) {
+    queryParams.warehouseId = params.warehouseId;
+  }
+
+  if (params?.kategoriStatus !== undefined) {
+    queryParams.kategoriStatus = params.kategoriStatus;
+  }
+
   const resp = await apiClient.get<ApiResponse<ColdStorageStockRow[]>>(
     `${BASE}/stocks`,
     {
-      params: Object.fromEntries(
-        Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== "")
-      ),
+      params: queryParams,
     }
   );
   return unwrap(resp);
