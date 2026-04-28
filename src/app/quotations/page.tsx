@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   HiOutlinePlus,
@@ -8,11 +8,20 @@ import {
   HiOutlineEye,
   HiOutlineCheckCircle,
   HiOutlineXCircle,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
+  HiOutlineMagnifyingGlass,
 } from "react-icons/hi2";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { quotationApi } from "@/lib/quotation-api";
-import type { QuotationData, QuotationStatus, SalesOrderData, UpdateQuotationStatusPayload, RejectQuotationPayload } from "@/types/quotation";
+import type {
+  QuotationData,
+  QuotationStatus,
+  SalesOrderData,
+  UpdateQuotationStatusPayload,
+  RejectQuotationPayload,
+} from "@/types/quotation";
 import { QUOTATION_STATUSES, UPDATABLE_STATUSES as UPDATABLE } from "@/types/quotation";
 
 export default function QuotationsPage() {
@@ -65,6 +74,8 @@ function formatDate(val?: string | null) {
   return new Date(val).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+const PAGE_SIZE = 10;
+
 /* ================================================================
    Main Content
    ================================================================ */
@@ -73,12 +84,22 @@ type FilterStatus = "" | QuotationStatus;
 
 function QuotationsContent() {
   const [quotations, setQuotations] = useState<QuotationData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState("");
+  // Pagination
+  const [page, setPage]                 = useState(0);
+  const [totalPages, setTotalPages]     = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+
+  // Filters (server-side)
+  const [searchQuery, setSearchQuery]   = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("");
+
+  // Debounce search
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   // Modal states
   const [statusModal, setStatusModal]   = useState<QuotationData | null>(null);
@@ -87,35 +108,44 @@ function QuotationsContent() {
   const [convertModal, setConvertModal] = useState<QuotationData | null>(null);
   const [detailModal, setDetailModal]   = useState<QuotationData | null>(null);
 
+  /* ── Search debounce ─────────────────────────────── */
+  function handleSearchChange(val: string) {
+    setSearchQuery(val);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => {
+      setDebouncedSearch(val);
+      setPage(0);
+    }, 400);
+  }
+
+  function handleStatusFilter(val: FilterStatus) {
+    setFilterStatus(val === filterStatus ? "" : val);
+    setPage(0);
+  }
+
   /* ── Fetch ───────────────────────────────────────── */
   const fetchQuotations = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await quotationApi.getAll();
-      setQuotations(data.data);
+      const { data } = await quotationApi.getPaged({
+        status: filterStatus || undefined,
+        search: debouncedSearch || undefined,
+        page,
+        size: PAGE_SIZE,
+      });
+      const paged = data.data as import("@/types/report").PagedResponse<QuotationData>;
+      setQuotations(paged.content);
+      setTotalPages(paged.totalPages);
+      setTotalElements(paged.totalElements);
     } catch {
       setError("Gagal memuat data quotation");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterStatus, debouncedSearch, page]);
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
-
-  /* ── Filter ──────────────────────────────────────── */
-  const displayed = useMemo(() => {
-    let rows = quotations;
-    if (filterStatus) rows = rows.filter((q) => q.status === filterStatus);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      rows = rows.filter((r) =>
-        r.quotationNumber.toLowerCase().includes(q) ||
-        r.customerName.toLowerCase().includes(q)
-      );
-    }
-    return rows;
-  }, [quotations, filterStatus, searchQuery]);
 
   function showSuccess(msg: string) {
     setSuccessMsg(msg);
@@ -156,18 +186,24 @@ function QuotationsContent() {
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Cari nomor quotation atau nama customer…"
-          className="flex-1 max-w-sm rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section
-            dark:text-gray-100 px-3 py-2 text-sm focus:border-cyan focus:outline-none
-            focus:ring-2 focus:ring-cyan/20 dark:placeholder:text-gray-500 transition-colors"
-        />
+        {/* Search */}
+        <div className="relative flex-1 max-w-sm">
+          <HiOutlineMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Cari nomor quotation atau customer…"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section
+              dark:text-gray-100 pl-9 pr-3 py-2 text-sm focus:border-cyan focus:outline-none
+              focus:ring-2 focus:ring-cyan/20 dark:placeholder:text-gray-500 transition-colors"
+          />
+        </div>
+
+        {/* Status filter pills */}
         <div className="flex flex-wrap gap-1.5">
           <button
-            onClick={() => setFilterStatus("")}
+            onClick={() => handleStatusFilter("")}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
               ${filterStatus === ""
                 ? "bg-navy text-white dark:bg-white dark:text-navy"
@@ -178,7 +214,7 @@ function QuotationsContent() {
           {QUOTATION_STATUSES.map((s) => (
             <button
               key={s.value}
-              onClick={() => setFilterStatus(s.value === filterStatus ? "" : s.value)}
+              onClick={() => handleStatusFilter(s.value)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
                 ${filterStatus === s.value
                   ? STATUS_STYLE[s.value] + " ring-1 ring-current"
@@ -190,7 +226,10 @@ function QuotationsContent() {
         </div>
       </div>
 
-      <p className="text-xs text-gray-400">{displayed.length} quotation ditemukan</p>
+      <p className="text-xs text-gray-400">
+        {totalElements} quotation ditemukan
+        {totalPages > 1 && ` · halaman ${page + 1} dari ${totalPages}`}
+      </p>
 
       {/* Table */}
       {loading ? (
@@ -211,14 +250,14 @@ function QuotationsContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {displayed.length === 0 ? (
+              {quotations.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                     {searchQuery || filterStatus ? "Tidak ada quotation yang cocok." : "Belum ada data quotation."}
                   </td>
                 </tr>
               ) : (
-                displayed.map((q) => (
+                quotations.map((q) => (
                   <tr key={q.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                     <td className="px-4 py-3 text-xs font-mono font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
                       {q.quotationNumber}
@@ -243,13 +282,11 @@ function QuotationsContent() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {/* Detail */}
                         <ActionBtn
                           onClick={() => setDetailModal(q)}
                           title="Lihat detail"
                           icon={<HiOutlineEye className="h-4 w-4" />}
                         />
-                        {/* Update status generic */}
                         {q.status !== "CONVERTED" && q.status !== "APPROVED" && q.status !== "REJECTED" && (
                           <ActionBtn
                             onClick={() => setStatusModal(q)}
@@ -257,7 +294,6 @@ function QuotationsContent() {
                             icon={<HiOutlineArrowPath className="h-4 w-4" />}
                           />
                         )}
-                        {/* Approve — hanya untuk status SENT */}
                         {q.status === "SENT" && (
                           <ActionBtn
                             onClick={() => setApproveModal(q)}
@@ -266,7 +302,6 @@ function QuotationsContent() {
                             color="green"
                           />
                         )}
-                        {/* Reject — untuk DRAFT atau SENT */}
                         {(q.status === "DRAFT" || q.status === "SENT") && (
                           <ActionBtn
                             onClick={() => setRejectModal(q)}
@@ -275,7 +310,6 @@ function QuotationsContent() {
                             color="red"
                           />
                         )}
-                        {/* Convert — hanya APPROVED */}
                         {q.status === "APPROVED" && (
                           <ActionBtn
                             onClick={() => setConvertModal(q)}
@@ -291,6 +325,65 @@ function QuotationsContent() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-gray-400">
+            Menampilkan {quotations.length} dari {totalElements} quotation
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0 || loading}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 p-1.5
+                text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5
+                disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <HiOutlineChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Page numbers */}
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              // Kalau total <= 7, tampil semua. Kalau > 7, tampil window 5 di sekitar halaman aktif.
+              let pageNum: number;
+              if (totalPages <= 7) {
+                pageNum = i;
+              } else if (page <= 3) {
+                pageNum = i;
+              } else if (page >= totalPages - 4) {
+                pageNum = totalPages - 7 + i;
+              } else {
+                pageNum = page - 3 + i;
+              }
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setPage(pageNum)}
+                  disabled={loading}
+                  className={`rounded-lg w-8 h-8 text-xs font-medium transition-colors
+                    ${pageNum === page
+                      ? "bg-cyan text-white"
+                      : "border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
+                    } disabled:opacity-60`}
+                >
+                  {pageNum + 1}
+                </button>
+              );
+            })}
+
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1 || loading}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 p-1.5
+                text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5
+                disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <HiOutlineChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -444,7 +537,7 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
 }
 
 /* ================================================================
-   Update Status Modal (generic — SENT / EXPIRED)
+   Update Status Modal
    ================================================================ */
 
 function UpdateStatusModal({
@@ -535,7 +628,6 @@ function ApproveModal({
   return (
     <ModalShell title="Setujui Quotation" onClose={onClose}>
       <div className="space-y-4">
-        {/* Summary */}
         <div className="rounded-lg bg-green-light/40 border border-green/20 p-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-500">Quotation</span>
@@ -554,13 +646,10 @@ function ApproveModal({
             <span className="text-gray-900 dark:text-gray-100">{formatDate(quotation.dateValid)}</span>
           </div>
         </div>
-
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Quotation ini akan berstatus <span className="font-semibold text-green">Disetujui</span> dan dapat dikonversi menjadi Sales Order.
         </p>
-
         {error && <div className="rounded-lg bg-red-light border border-red/20 p-3 text-sm text-red">{error}</div>}
-
         <ModalActions
           onClose={onClose}
           onConfirm={handleApprove}
@@ -589,10 +678,7 @@ function RejectModal({
   const [error, setError] = useState<string | null>(null);
 
   async function handleReject() {
-    if (!reason.trim()) {
-      setError("Alasan penolakan wajib diisi");
-      return;
-    }
+    if (!reason.trim()) { setError("Alasan penolakan wajib diisi"); return; }
     setSubmitting(true);
     setError(null);
     try {
@@ -609,7 +695,6 @@ function RejectModal({
   return (
     <ModalShell title="Tolak Quotation" onClose={onClose}>
       <div className="space-y-4">
-        {/* Summary */}
         <div className="rounded-lg bg-red-light/40 border border-red/20 p-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-500">Quotation</span>
@@ -624,8 +709,6 @@ function RejectModal({
             <span className="font-semibold text-gray-900 dark:text-gray-100">{formatRupiah(quotation.total)}</span>
           </div>
         </div>
-
-        {/* Reason textarea */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Alasan Penolakan <span className="text-red">*</span>
@@ -645,7 +728,6 @@ function RejectModal({
           {error && <p className="mt-1 text-xs text-red">{error}</p>}
           <p className="mt-1 text-xs text-gray-400">{reason.length} karakter</p>
         </div>
-
         <ModalActions
           onClose={onClose}
           onConfirm={handleReject}

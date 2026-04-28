@@ -9,10 +9,33 @@ import type {
   SalesRekapData,
   QuotationStatus,
 } from "@/types/quotation";
+import type { PagedResponse } from "@/types/report";
 
 const BASE = "/v1/quotations";
 
 export const quotationApi = {
+  /**
+   * List paginated + search — dipakai halaman list quotation.
+   */
+  getPaged: (params: {
+    status?: QuotationStatus | "";
+    search?: string;
+    page?: number;
+    size?: number;
+  }) =>
+    apiClient.get<ApiResponse<PagedResponse<QuotationData>>>(BASE, {
+      params: {
+        paged: true,
+        status: params.status || undefined,
+        search: params.search || undefined,
+        page:   params.page ?? 0,
+        size:   params.size ?? 10,
+      },
+    }),
+
+  /**
+   * List tanpa pagination — dipakai internal (report, dll).
+   */
   getAll: (status?: QuotationStatus) =>
     apiClient.get<ApiResponse<QuotationData[]>>(BASE, {
       params: status ? { status } : undefined,
