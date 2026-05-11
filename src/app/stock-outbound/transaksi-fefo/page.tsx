@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
+import { useAuth } from "@/context/AuthContext";
+import { STOCK_OUTBOUND_EXPORT_ROLES } from "@/lib/stock-outbound-rbac";
 import type {
   AllocationSummary,
   ExportReadiness,
@@ -48,6 +50,7 @@ function firstAllocatableId(summary: AllocationSummary | null): string {
 }
 
 export default function TransaksiFefoPage() {
+  const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("proses");
   const [salesOrders, setSalesOrders] = useState<SalesOrderOutboundSummary[]>([]);
   const [fefoBatches, setFefoBatches] = useState<FefoBatchStock[]>([]);
@@ -122,12 +125,14 @@ export default function TransaksiFefoPage() {
       setTransportModes(modeRes.data.data ?? []);
       setShipments(shipmentData);
 
+      const canCheckReadiness = Boolean(user?.role && STOCK_OUTBOUND_EXPORT_ROLES.includes(user.role));
       const readinessCandidates = shipmentData.filter(
         (item) => item.isExport && nextShipmentStatus(item.status) === "DISPATCHED"
       );
 
-      if (readinessCandidates.length === 0) {
+      if (!canCheckReadiness || readinessCandidates.length === 0) {
         setReadinessByShipmentId({});
+        setLoadingReadinessIds([]);
       } else {
         setLoadingReadinessIds(readinessCandidates.map((item) => item.shipmentId));
 
@@ -155,9 +160,8 @@ export default function TransaksiFefoPage() {
           }
         });
         setReadinessByShipmentId(nextReadinessMap);
+        setLoadingReadinessIds([]);
       }
-
-      setLoadingReadinessIds([]);
 
       const actionableSo = soData.filter(
         (item) =>
@@ -177,7 +181,7 @@ export default function TransaksiFefoPage() {
     } finally {
       setLoadingMaster(false);
     }
-  }, [clearAlert]);
+  }, [clearAlert, user?.role]);
 
   const fetchAllocation = useCallback(async (soId: number) => {
     try {

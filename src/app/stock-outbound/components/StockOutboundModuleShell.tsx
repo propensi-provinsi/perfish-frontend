@@ -5,6 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
+import { useAuth } from "@/context/AuthContext";
+import {
+  getStockOutboundAllowedRoles,
+  isRoleAllowedForStockOutboundPath,
+} from "@/lib/stock-outbound-rbac";
 
 type Props = {
   title: string;
@@ -41,9 +46,14 @@ function isActive(pathname: string, href: string) {
 
 export default function StockOutboundModuleShell({ title, description, children }: Props) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const allowedRoles = getStockOutboundAllowedRoles(pathname);
+  const visibleTabs = user?.role
+    ? tabs.filter((tab) => isRoleAllowedForStockOutboundPath(user.role, tab.href))
+    : tabs;
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowedRoles={allowedRoles}>
       <AppShell>
         <div className="space-y-5">
           <header className="space-y-1">
@@ -53,7 +63,7 @@ export default function StockOutboundModuleShell({ title, description, children 
 
           <nav className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-2">
             <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-              {tabs.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const active = isActive(pathname, tab.href);
                 return (
                   <li key={tab.href}>

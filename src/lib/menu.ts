@@ -15,6 +15,11 @@ import {
   LuChartBar,
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
+import type { UserRole } from "@/types";
+import {
+  isRoleAllowedForStockOutboundPath,
+  STOCK_OUTBOUND_MODULE_ROLES,
+} from "@/lib/stock-outbound-rbac";
 
 export interface MenuItem {
   key: string;
@@ -42,6 +47,18 @@ export const REPORTS_ROLES = [
   "WAREHOUSE_STAFF",
   "WAREHOUSE_ADMIN",
 ] as const;
+
+const STOCK_OUTBOUND_ITEM: MenuItem = {
+  key: "stock-outbound",
+  label: "Pengeluaran Stok",
+  icon: LuPackageOpen,
+  children: [
+    { key: "so-receiving", label: "Penerimaan Sales Order", href: "/stock-outbound/penerimaan-sales-order" },
+    { key: "pallet-allocation", label: "Data Batch Alokasi", href: "/stock-outbound/alokasi-pallet" },
+    { key: "fefo-transaction", label: "Transaksi FEFO", href: "/stock-outbound/transaksi-fefo" },
+    { key: "export-docs", label: "Dokumen Ekspor", href: "/stock-outbound/dokumen-ekspor" },
+  ],
+};
 
 export const mainMenu: MenuItem[] = [
   {
@@ -114,12 +131,7 @@ export const mainMenu: MenuItem[] = [
     key: "stock-outbound",
     label: "Pengeluaran Stok",
     icon: LuPackageOpen,
-    children: [
-      { key: "so-receiving", label: "Penerimaan Sales Order", href: "/stock-outbound/penerimaan-sales-order" },
-      { key: "pallet-allocation", label: "Data Batch Alokasi", href: "/stock-outbound/alokasi-pallet" },
-      { key: "fefo-transaction", label: "Transaksi FEFO", href: "/stock-outbound/transaksi-fefo" },
-      { key: "export-docs", label: "Dokumen Ekspor", href: "/stock-outbound/dokumen-ekspor" },
-    ],
+    children: STOCK_OUTBOUND_ITEM.children,
   },
   {
     key: "orders",
@@ -224,6 +236,27 @@ function withMasterDataSupplierMenuForRole(menu: MenuItem[], role: string | unde
   });
 }
 
+/** Sembunyikan/trim menu Pengeluaran Stok untuk role yang tidak diizinkan */
+function withStockOutboundMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
+  const normalizedRole = role as UserRole | undefined;
+
+  if (!normalizedRole || !STOCK_OUTBOUND_MODULE_ROLES.includes(normalizedRole)) {
+    return menu.filter((item) => item.key !== "stock-outbound");
+  }
+
+  return menu
+    .map((item) => {
+      if (item.key !== "stock-outbound" || !item.children?.length) return item;
+      const allowedChildren = item.children.filter((child) => {
+        if (!child.href) return true;
+        return isRoleAllowedForStockOutboundPath(normalizedRole, child.href);
+      });
+      if (allowedChildren.length === 0) return null;
+      return { ...item, children: allowedChildren };
+    })
+    .filter((item): item is MenuItem => item !== null);
+}
+
 /** Sembunyikan Audit Trail untuk role yang tidak diizinkan */
 function withAuditTrailMenuForRole(menu: MenuItem[], role: string | undefined): MenuItem[] {
   if (role && AUDIT_TRAIL_ROLES.includes(role as (typeof AUDIT_TRAIL_ROLES)[number])) {
@@ -252,15 +285,17 @@ function withReportsMenuForRole(menu: MenuItem[], role: string | undefined): Men
 export function getMainMenuForRole(role: string | undefined): MenuItem[] {
   // ── Kepala Cabang: menu terbatas ──
   if (role === "KEPALA_CABANG") {
-    return [
+    const menu: MenuItem[] = [
       { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
       {
         key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
         children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }]
       },
       inboundPurchasingItem(role),
+      STOCK_OUTBOUND_ITEM,
       REPORTS_MENU,
     ];
+    return withStockOutboundMenuForRole(menu, role);
   }
 
   // ── SBB Staff: menu terbatas ──
@@ -279,8 +314,11 @@ export function getMainMenuForRole(role: string | undefined): MenuItem[] {
   // ── Semua role lain: full menu dengan filter bertahap ──
   return withReportsMenuForRole(
     withAuditTrailMenuForRole(
-      withMasterDataSupplierMenuForRole(
-        withInboundPurchasingMenu(mainMenu, role),
+      withStockOutboundMenuForRole(
+        withMasterDataSupplierMenuForRole(
+          withInboundPurchasingMenu(mainMenu, role),
+          role
+        ),
         role
       ),
       role
