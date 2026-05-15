@@ -40,7 +40,7 @@ export const stockOutboundApi = {
     apiClient.get<ApiResponse<AllocationSummary>>(`${soBase}/${soId}/allocation`),
 
   getFefoBatches: (search = "") =>
-    apiClient.get<ApiResponse<FefoBatchStock[]>>("/v1/batch/master-batches", {
+    apiClient.get<ApiResponse<FefoBatchStock[]>>(`${soBase}/fefo-batches`, {
       params: { search },
     }),
 

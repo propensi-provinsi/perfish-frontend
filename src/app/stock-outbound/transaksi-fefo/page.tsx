@@ -754,10 +754,6 @@ export default function TransaksiFefoPage() {
                 ) : null}
               </div>
             )}
-                  Kriteria item: {selectedManualCriteria.speciesName ?? selectedManualCriteria.speciesCode ?? "-"}
-                </p>
-              ) : null}
-            </div>
 
             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
               <table className="min-w-full text-sm">
