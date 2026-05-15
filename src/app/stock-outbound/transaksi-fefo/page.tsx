@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
 import { useAuth } from "@/context/AuthContext";
-import { STOCK_OUTBOUND_EXPORT_ROLES } from "@/lib/stock-outbound-rbac";
+import {
+  STOCK_OUTBOUND_EXPORT_ROLES,
+  STOCK_OUTBOUND_MANUAL_FEFO_ROLES,
+} from "@/lib/stock-outbound-rbac";
 import type {
   AllocationSummary,
   ExportReadiness,
@@ -97,6 +100,10 @@ export default function TransaksiFefoPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const canManualAllocate = useMemo(() => {
+    return Boolean(user?.role && STOCK_OUTBOUND_MANUAL_FEFO_ROLES.includes(user.role));
+  }, [user]);
 
   const clearAlert = useCallback(() => {
     setTimeout(() => {
@@ -673,74 +680,80 @@ export default function TransaksiFefoPage() {
               {runningFefo ? "Memproses FEFO..." : "Jalankan Auto FEFO"}
             </button>
 
-            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-              <div>
-                <h3 className="text-sm font-semibold text-navy dark:text-white">Manual Allocation</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Gunakan manual allocation untuk override FEFO. De-allocation hanya diperbolehkan sebelum delivery order masuk tahap OUTBOUND.
-                </p>
-              </div>
+            {canManualAllocate && (
+              <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-navy dark:text-white">Manual Allocation</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Gunakan manual allocation untuk override FEFO. De-allocation hanya diperbolehkan sebelum delivery order masuk tahap OUTBOUND.
+                  </p>
+                </div>
 
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <select
-                  value={manualForm.quotationItemId}
-                  onChange={(event) =>
-                    setManualForm((prev) => ({
-                      ...prev,
-                      quotationItemId: event.target.value,
-                      batchId: "",
-                    }))
-                  }
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <select
+                    value={manualForm.quotationItemId}
+                    onChange={(event) =>
+                      setManualForm((prev) => ({
+                        ...prev,
+                        quotationItemId: event.target.value,
+                        batchId: "",
+                      }))
+                    }
+                    className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                  >
+                    <option value="">Pilih item quotation</option>
+                    {(selectedSo?.criteria ?? []).map((criteria) => (
+                      <option key={criteria.quotationItemId} value={criteria.quotationItemId}>
+                        Item #{criteria.quotationItemId} - {criteria.speciesName ?? criteria.speciesCode ?? "Unknown species"}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={manualForm.batchId}
+                    onChange={(event) => setManualForm((prev) => ({ ...prev, batchId: event.target.value }))}
+                    className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                  >
+                    <option value="">Pilih batch target</option>
+                    {manualBatchOptions.map((batch) => (
+                      <option key={batch.batchId} value={batch.batchId}>
+                        {batch.batchNumber} - {batch.fishSpeciesName ?? "-"} - {formatKg(batch.currentQuantity)} Kg
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    value={manualForm.quantityKg}
+                    onChange={(event) => setManualForm((prev) => ({ ...prev, quantityKg: event.target.value }))}
+                    placeholder="Quantity Kg"
+                    inputMode="decimal"
+                    className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                  />
+
+                  <input
+                    value={manualForm.note}
+                    onChange={(event) => setManualForm((prev) => ({ ...prev, note: event.target.value }))}
+                    placeholder="Catatan manual allocation (opsional)"
+                    className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRunManualAllocation}
+                  disabled={!selectedSoId || runningManualAllocation}
+                  className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <option value="">Pilih item quotation</option>
-                  {(selectedSo?.criteria ?? []).map((criteria) => (
-                    <option key={criteria.quotationItemId} value={criteria.quotationItemId}>
-                      Item #{criteria.quotationItemId} - {criteria.speciesName ?? criteria.speciesCode ?? "Unknown species"}
-                    </option>
-                  ))}
-                </select>
+                  {runningManualAllocation ? "Memproses Manual..." : "Simpan Manual Allocation"}
+                </button>
 
-                <select
-                  value={manualForm.batchId}
-                  onChange={(event) => setManualForm((prev) => ({ ...prev, batchId: event.target.value }))}
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-                >
-                  <option value="">Pilih batch target</option>
-                  {manualBatchOptions.map((batch) => (
-                    <option key={batch.batchId} value={batch.batchId}>
-                      {batch.batchNumber} - {batch.fishSpeciesName ?? "-"} - {formatKg(batch.currentQuantity)} Kg
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  value={manualForm.quantityKg}
-                  onChange={(event) => setManualForm((prev) => ({ ...prev, quantityKg: event.target.value }))}
-                  placeholder="Quantity Kg"
-                  inputMode="decimal"
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-                />
-
-                <input
-                  value={manualForm.note}
-                  onChange={(event) => setManualForm((prev) => ({ ...prev, note: event.target.value }))}
-                  placeholder="Catatan manual allocation (opsional)"
-                  className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
-                />
+                {selectedManualCriteria ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Kriteria item: {selectedManualCriteria.speciesName ?? selectedManualCriteria.speciesCode ?? "-"}
+                  </p>
+                ) : null}
               </div>
-
-              <button
-                type="button"
-                onClick={handleRunManualAllocation}
-                disabled={!selectedSoId || runningManualAllocation}
-                className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {runningManualAllocation ? "Memproses Manual..." : "Simpan Manual Allocation"}
-              </button>
-
-              {selectedManualCriteria ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+            )}
                   Kriteria item: {selectedManualCriteria.speciesName ?? selectedManualCriteria.speciesCode ?? "-"}
                 </p>
               ) : null}

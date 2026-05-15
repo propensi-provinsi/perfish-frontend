@@ -12,6 +12,11 @@ export const STOCK_OUTBOUND_EXPORT_ROLES: UserRole[] = [
   "SUPERADMIN",
 ];
 
+export const STOCK_OUTBOUND_MANUAL_FEFO_ROLES: UserRole[] = [
+  "WAREHOUSE_ADMIN",
+  "SUPERADMIN",
+];
+
 export const STOCK_OUTBOUND_DISTRIBUTION_ROLES: UserRole[] = [
   "WAREHOUSE_ADMIN",
   "BOARD_DIRECTORS",
