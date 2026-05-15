@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks } from "@/lib/coldstorage-api";
@@ -89,7 +90,12 @@ export default function ColdStorageDashboard() {
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Cold Storage Monitor</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Monitoring stok per gudang dan batch, umur simpan dihitung otomatis setiap hari.
+            Hanya batch yang sudah punya{" "}
+            <strong>lokasi rack</strong> di cold storage. Batch yang baru di-approve dan belum ditentukan lokasinya ada di{" "}
+            <Link href="/storage/loading-bay" className="font-medium text-cyan hover:underline">
+              Loading Bay
+            </Link>
+            . Umur simpan dihitung otomatis setiap hari.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -154,13 +160,15 @@ export default function ColdStorageDashboard() {
                 <th className="px-3 py-2">Tgl Masuk</th>
                 <th className="px-3 py-2">Umur Simpan</th>
                 <th className="px-3 py-2">Stok</th>
+                <th className="px-3 py-2">Kandang macan</th>
+                <th className="px-3 py-2 text-right">Utilisasi</th>
                 <th className="px-3 py-2">Status</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-5 text-gray-500">
+                  <td colSpan={9} className="px-3 py-5 text-gray-500">
                     Memuat data...
                   </td>
                 </tr>
@@ -186,6 +194,28 @@ export default function ColdStorageDashboard() {
                       {row.jumlahStok ?? 0} {row.unit ?? ""}
                     </td>
                     <td className="px-3 py-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span>
+                          {row.kandangMacanCode ?? "—"}
+                          {row.kandangUnderCapacity ? (
+                            <span className="ml-1.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                              Under kapasitas
+                            </span>
+                          ) : null}
+                        </span>
+                        {row.kandangNominalCapacityKg != null && row.kandangNominalCapacityKg !== "" ? (
+                          <span className="text-[11px] text-gray-500">
+                            Nominal {row.kandangNominalCapacityKg} kg
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
+                      {row.kandangUtilizationPct != null && row.kandangUtilizationPct !== ""
+                        ? `${Number(String(row.kandangUtilizationPct).replace(",", ".")).toFixed(1)}%`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2">
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(row.kategoriStatus)}`}>
                         {row.kategoriStatus}
                       </span>
@@ -194,7 +224,7 @@ export default function ColdStorageDashboard() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-3 py-5 text-gray-500">
+                  <td colSpan={9} className="px-3 py-5 text-gray-500">
                     Belum ada stok batch aktif di Cold Storage.
                   </td>
                 </tr>
