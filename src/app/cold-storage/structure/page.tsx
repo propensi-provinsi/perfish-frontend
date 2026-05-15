@@ -4,10 +4,30 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Button from "@/components/ui/Button";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { listColdStorageStructureSummaries } from "@/lib/coldstorage-api";
 import type { ColdStorageStructureSummary } from "@/types/coldstorage";
+
+function fmtKg(v: number | string | null | undefined) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
+}
+
+function fmtTon(v: number | string | null | undefined) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 4 })} t`;
+}
+
+function fmtPct(v: number | null | undefined) {
+  if (v == null) return "—";
+  return `${Number(v).toFixed(1)}%`;
+}
 
 function ColdStorageStructurePageInner() {
   const [rows, setRows] = useState<ColdStorageStructureSummary[]>([]);
@@ -32,10 +52,38 @@ function ColdStorageStructurePageInner() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-navy dark:text-white">Struktur Cold Storage</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Ringkasan block, rack, dan posisi per cold storage. Buka detail untuk hierarki lengkap.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-navy dark:text-white">Struktur Cold Storage</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Ringkasan block, rack, dan posisi per cold storage. Buka detail untuk hierarki lengkap.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              onClick={() => {
+                void (async () => {
+                  setLoading(true);
+                  setError(null);
+                  try {
+                    const data = await listColdStorageStructureSummaries();
+                    setRows(data);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Gagal memuat ringkasan cold storage");
+                  } finally {
+                    setLoading(false);
+                  }
+                })();
+              }}
+            >
+              Segarkan
+            </Button>
+          </div>
+        </div>
       </header>
       <ColdStorageModuleNav />
 
@@ -56,6 +104,8 @@ function ColdStorageStructurePageInner() {
                 <th className="px-4 py-3 text-right">Block</th>
                 <th className="px-4 py-3 text-right">Rack</th>
                 <th className="px-4 py-3 text-right">Posisi</th>
+                <th className="px-4 py-3 text-right">Stok (ton)</th>
+                <th className="px-4 py-3 text-right">Okupansi posisi</th>
                 <th className="px-4 py-3">Status posisi</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -72,6 +122,18 @@ function ColdStorageStructurePageInner() {
                   <td className="px-4 py-2 text-right tabular-nums">{r.blockCount}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{r.rackCount}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{r.positionCount}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                    {fmtTon(r.totalStockTon ?? null)}
+                    <div className="text-[11px] font-normal text-gray-500">{fmtKg(r.totalStockKg)}</div>
+                  </td>
+                  <td className="px-4 py-2 text-right text-xs text-gray-700 dark:text-gray-300">
+                    <span className="tabular-nums">{fmtPct(r.positionOccupancyRatePct ?? null)}</span>
+                    <div className="text-[11px] text-gray-500">
+                      {r.occupiedPositionCount != null && r.availablePositionCount != null
+                        ? `${r.occupiedPositionCount} terisi · ${r.availablePositionCount} kosong`
+                        : "—"}
+                    </div>
+                  </td>
                   <td className="px-4 py-2">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(r.positionCountByStatus ?? {}).length === 0 ? (
@@ -90,12 +152,20 @@ function ColdStorageStructurePageInner() {
                     </div>
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <Link
-                      href={`/cold-storage/structure/${r.coldStorageId}`}
-                      className="inline-flex rounded-lg bg-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-hover"
-                    >
-                      Lihat detail
-                    </Link>
+                    <div className="flex flex-col items-end gap-1">
+                      <Link
+                        href={`/cold-storage/structure/${r.coldStorageId}`}
+                        className="inline-flex rounded-lg bg-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-hover"
+                      >
+                        Lihat detail
+                      </Link>
+                      <Link
+                        href={`/cold-storage/stock-opname?coldStorageId=${r.coldStorageId}`}
+                        className="text-xs font-medium text-cyan hover:underline"
+                      >
+                        Stock opname
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

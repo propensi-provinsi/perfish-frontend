@@ -1,24 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import apiClient from "@/lib/api";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
-import { assignLocation, getAssignLocationContext, listStorageAreaOptions } from "@/lib/coldstorage-api";
+import {
+  assignLocation,
+  getAssignLocationContext,
+  listLoadingBayBatches,
+  listStorageAreaOptions,
+} from "@/lib/coldstorage-api";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
-import type { ApiResponse, ColdStorageData } from "@/types";
+import type { ColdStorageData } from "@/types";
 import type {
   AssignLocationRequest,
+  LoadingBayBatchRow,
   StorageAreaOption,
 } from "@/types/coldstorage";
-
-interface MasterBatchOption {
-  batchId: number;
-  batchNumber: string;
-  fishSpeciesName?: string;
-  currentQuantity?: number | string;
-  unit?: string;
-}
 
 /**
  * Form Penentuan Lokasi Penyimpanan Batch (E05-PBI-01).
@@ -30,8 +29,9 @@ interface MasterBatchOption {
  * - Notifikasi sukses muncul setelah berhasil.
  */
 export default function AssignLocationForm() {
+  const searchParams = useSearchParams();
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
-  const [batches, setBatches] = useState<MasterBatchOption[]>([]);
+  const [batches, setBatches] = useState<LoadingBayBatchRow[]>([]);
 
   const [batchId, setBatchId] = useState<number | "">("");
   const [warehouseId, setWarehouseId] = useState<number | "">("");
@@ -51,15 +51,25 @@ export default function AssignLocationForm() {
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
+    const q = searchParams.get("batchId");
+    if (q) {
+      const id = Number(q);
+      if (Number.isFinite(id) && id > 0) {
+        setBatchId(id);
+      }
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     async function bootstrap() {
       setLoading(true);
       try {
-        const [coldStorageData, batchResp] = await Promise.all([
+        const [coldStorageData, batchRows] = await Promise.all([
           getColdStorages(),
-          apiClient.get<ApiResponse<MasterBatchOption[]>>("/v1/coldstorage/assignable-batches"),
+          listLoadingBayBatches(),
         ]);
         setColdStorages(coldStorageData.filter((cs) => cs.isActive));
-        setBatches(batchResp.data.data ?? []);
+        setBatches(batchRows);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memuat data awal");
       } finally {
@@ -154,6 +164,11 @@ export default function AssignLocationForm() {
       setInboundReceiptDate(null);
       setStorageAreaId("");
       setNotes("");
+      try {
+        setBatches(await listLoadingBayBatches());
+      } catch {
+        /* daftar loading bay opsional di-refresh */
+      }
     } catch (err) {
       const apiMessage =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -167,8 +182,12 @@ export default function AssignLocationForm() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-navy dark:text-white">Penentuan Lokasi Penyimpanan Batch</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Menetapkan area penyimpanan pada batch
+        <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+          Menetapkan posisi rack pada batch yang saat ini berada di{" "}
+          <Link href="/storage/loading-bay" className="font-medium text-cyan hover:underline">
+            loading bay
+          </Link>{" "}
+          (belum punya lokasi aktif). Setelah disimpan, batch muncul di Monitor Stok cold storage.
         </p>
       </header>
       <ColdStorageModuleNav />

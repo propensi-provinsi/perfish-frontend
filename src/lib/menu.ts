@@ -13,6 +13,7 @@ import {
   LuSnowflake,
   LuPackageOpen,
   LuChartBar,
+  LuWarehouse,
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 
@@ -98,16 +99,26 @@ export const mainMenu: MenuItem[] = [
     children: [{ key: "purchasing-penerimaan", label: "Penerimaan Ikan", href: "/inbound-ikan" }],
   },
   {
-    key: "cold-storage",
-    label: "Cold Storage",
-    icon: LuSnowflake,
+    key: "storage",
+    label: "Storage",
+    icon: LuWarehouse,
     children: [
-      { key: "cs-monitor", label: "Monitor Stok", href: "/cold-storage" },
-      { key: "cs-assign", label: "Penentuan Lokasi", href: "/cold-storage/assign-location" },
-      { key: "cs-move", label: "Pemindahan Batch", href: "/cold-storage/move-batch" },
-      { key: "cs-history", label: "Histori Batch", href: "/cold-storage/batch-history" },
-      { key: "cs-disposal", label: "Disposal", href: "/cold-storage/disposal" },
-      { key: "cs-structure", label: "Struktur Gudang", href: "/cold-storage/structure" },
+      { key: "storage-loading-bay", label: "Loading Bay", href: "/storage/loading-bay" },
+      {
+        key: "storage-cold-storage",
+        label: "Cold Storage",
+        icon: LuSnowflake,
+        children: [
+          { key: "cs-monitor", label: "Monitor Stok", href: "/cold-storage" },
+          { key: "cs-assign", label: "Penentuan Lokasi", href: "/cold-storage/assign-location" },
+          { key: "cs-move", label: "Pemindahan Batch", href: "/cold-storage/move-batch" },
+          { key: "cs-history", label: "Histori Batch", href: "/cold-storage/batch-history" },
+          { key: "cs-disposal", label: "Disposal", href: "/cold-storage/disposal" },
+          { key: "cs-structure", label: "Struktur Gudang", href: "/cold-storage/structure" },
+          { key: "cs-opname", label: "Stock Opname", href: "/cold-storage/stock-opname" },
+          { key: "cs-merge", label: "Gabung Batch", href: "/cold-storage/batch-merge" },
+        ],
+      },
     ],
   },
   {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const tabs = [
+  { href: "/storage/loading-bay", label: "Loading Bay" },
   { href: "/cold-storage", label: "Monitor Stok" },
   { href: "/cold-storage/assign-location", label: "Penentuan Lokasi" },
   { href: "/cold-storage/move-batch", label: "Pemindahan Batch" },
@@ -14,6 +15,7 @@ const tabs = [
 
 function isActive(pathname: string, href: string) {
   if (href === "/cold-storage") return pathname === href;
+  if (href === "/storage/loading-bay") return pathname === href || pathname.startsWith(`${href}/`);
   if (href === "/cold-storage/structure") return pathname.startsWith("/cold-storage/structure");
   return pathname.startsWith(href);
 }
@@ -23,7 +25,7 @@ export default function ColdStorageModuleShell() {
 
   return (
     <nav className="rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-card">
-      <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         {tabs.map((tab) => {
           const active = isActive(pathname, tab.href);
           return (

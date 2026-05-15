@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/ui/Button";
 import {
-  disposeBatch,
+  disposeBatchMultipart,
+  downloadDisposalBeritaAcara,
   listColdStorageStocks,
   listDisposalHistory,
 } from "@/lib/coldstorage-api";
@@ -17,7 +18,7 @@ import type {
  * Panel untuk E05-PBI-05 (Pencatatan Disposal Stok Expired).
  *
  * - Menampilkan hanya batch berstatus EXPIRED pada dropdown (kategoriStatus = EXPIRED).
- * - Tombol "Dispose" hanya aktif ketika batch Expired dipilih.
+ * - Unggah Berita Acara Pemusnahan (wajib).
  * - Field jumlah dan alasan wajib diisi.
  * - Menampilkan pesan sukses "Disposal berhasil dicatat".
  */
@@ -28,6 +29,7 @@ export default function DisposalPanel() {
   const [batchId, setBatchId] = useState<number | "">("");
   const [jumlahDibuang, setJumlahDibuang] = useState<string>("");
   const [alasan, setAlasan] = useState("");
+  const [beritaAcara, setBeritaAcara] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -60,12 +62,17 @@ export default function DisposalPanel() {
     void loadData();
   }, []);
 
+  const maxQty = selectedBatch ? Number(selectedBatch.jumlahStok ?? 0) : 0;
+  const parsedJumlah = Number(String(jumlahDibuang).replace(",", "."));
+
   const canSubmit =
     !submitting &&
     !!selectedBatch &&
-    Number(jumlahDibuang) > 0 &&
-    Number(jumlahDibuang) <= Number(selectedBatch?.jumlahStok ?? 0) &&
-    alasan.trim().length > 0;
+    Number.isFinite(parsedJumlah) &&
+    parsedJumlah > 0 &&
+    parsedJumlah <= maxQty &&
+    alasan.trim().length > 0 &&
+    !!beritaAcara;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,15 +82,17 @@ export default function DisposalPanel() {
     setError(null);
     setSuccess(null);
     try {
-      await disposeBatch({
+      await disposeBatchMultipart({
         batchId: selectedBatch.batchId,
-        jumlahDibuang: Number(jumlahDibuang),
+        jumlahDibuang: parsedJumlah,
         alasan: alasan.trim(),
+        beritaAcara,
       });
       setSuccess("Disposal berhasil dicatat");
       setBatchId("");
       setJumlahDibuang("");
       setAlasan("");
+      setBeritaAcara(null);
       await loadData();
     } catch (err) {
       const apiMessage =
@@ -187,6 +196,20 @@ export default function DisposalPanel() {
             />
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">
+              Berita Acara Pemusnahan <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+              onChange={(e) => setBeritaAcara(e.target.files?.[0] ?? null)}
+              className="w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+              disabled={loading}
+            />
+            <p className="mt-1 text-xs text-gray-500">PDF, JPG, atau PNG — wajib untuk setiap disposal.</p>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button
               type="submit"
@@ -218,6 +241,30 @@ export default function DisposalPanel() {
                   <div className="text-xs text-gray-500">
                     Sisa stok setelah disposal: {h.remainingAfterDisposal} — oleh {h.disposedBy ?? "system"}
                   </div>
+                  {h.beritaAcaraStoredName && (
+                    <div className="mt-1">
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-cyan hover:underline"
+                        onClick={async () => {
+                          try {
+                            const { blob, filename } = await downloadDisposalBeritaAcara(h.disposalId);
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = filename;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          } catch {
+                            // eslint-disable-next-line no-alert
+                            alert("Gagal mengunduh Berita Acara");
+                          }
+                        }}
+                      >
+                        Unduh Berita Acara
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

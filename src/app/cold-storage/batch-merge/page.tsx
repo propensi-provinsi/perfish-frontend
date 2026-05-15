@@ -1,0 +1,294 @@
+"use client";
+
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import AppShell from "@/components/layout/AppShell";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import Button from "@/components/ui/Button";
+import { getColdStorages } from "@/lib/expiry";
+import { listColdStorageStocks, mergeColdStorageBatches } from "@/lib/coldstorage-api";
+import type { ColdStorageData } from "@/types";
+import type { BatchMergeResponseData, ColdStorageStockRow } from "@/types/coldstorage";
+
+function eligibleForMerge(row: ColdStorageStockRow) {
+  return row.batchStatus === "AVAILABLE" && row.kategoriStatus !== "DISPOSED";
+}
+
+function BatchMergePageInner() {
+  const searchParams = useSearchParams();
+  const presetCs = searchParams.get("coldStorageId");
+  const presetSurvivor = searchParams.get("survivorBatchId");
+  const lockedWarehouse = presetCs != null && presetCs !== "";
+
+  const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
+  const [warehouseId, setWarehouseId] = useState<number | "">("");
+  const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
+  const [survivorId, setSurvivorId] = useState<number | "">("");
+  const [donorIds, setDonorIds] = useState<Set<number>>(new Set());
+  const [result, setResult] = useState<BatchMergeResponseData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (lockedWarehouse && Number.isFinite(Number(presetCs))) {
+      setWarehouseId(Number(presetCs));
+    }
+  }, [lockedWarehouse, presetCs]);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const list = await getColdStorages();
+        setColdStorages(list.filter((c) => c.isActive));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (warehouseId === "") {
+      setRows([]);
+      return;
+    }
+    void (async () => {
+      setError(null);
+      const data = await listColdStorageStocks({ warehouseId: Number(warehouseId) });
+      setRows(data);
+      setDonorIds(new Set());
+      setResult(null);
+      if (
+        presetSurvivor != null &&
+        presetCs != null &&
+        String(warehouseId) === presetCs &&
+        Number.isFinite(Number(presetSurvivor))
+      ) {
+        setSurvivorId(Number(presetSurvivor));
+      } else {
+        setSurvivorId("");
+      }
+    })();
+  }, [warehouseId, presetCs, presetSurvivor]);
+
+  const presetLabel = useMemo(() => {
+    if (!lockedWarehouse || warehouseId === "") return null;
+    const c = coldStorages.find((x) => x.coldStorageId === warehouseId);
+    return c ? `${c.csCode} — ${c.csName}` : `Cold storage #${warehouseId}`;
+  }, [coldStorages, lockedWarehouse, warehouseId]);
+
+  const mergeableRows = useMemo(() => rows.filter(eligibleForMerge), [rows]);
+
+  function toggleDonor(id: number) {
+    if (id === survivorId) return;
+    setDonorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleMerge() {
+    if (survivorId === "" || donorIds.size === 0) {
+      setError("Pilih batch survivor dan minimal satu donor.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await mergeColdStorageBatches({
+        survivorBatchId: Number(survivorId),
+        donorBatchIds: Array.from(donorIds),
+      });
+      setResult(data);
+      if (warehouseId !== "") {
+        const refreshed = await listColdStorageStocks({ warehouseId: Number(warehouseId) });
+        setRows(refreshed);
+        setDonorIds(new Set());
+      }
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Gagal menggabung batch");
+      setError(String(msg));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">Gabung batch (kandang macan)</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Hanya <strong>species sama</strong> dan <strong>satu cold storage</strong>. Jika SKU berbeda, survivor mengikuti{" "}
+          <strong>mayoritas total berat</strong> (sama seperti paletisasi inbound). Jejak inbound donor di lineage.
+        </p>
+      </header>
+      <ColdStorageModuleNav />
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+        <label className="mb-1 block text-xs font-medium text-gray-500">Cold storage</label>
+        {lockedWarehouse && presetLabel ? (
+          <div className="max-w-md rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-gray-900 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-gray-100">
+            {presetLabel}
+            <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">
+              <Link href="/cold-storage/batch-merge" className="text-cyan hover:underline">
+                Pilih gudang lain
+              </Link>
+            </p>
+          </div>
+        ) : (
+          <select
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
+            className="max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+            disabled={loading}
+          >
+            <option value="">Pilih gudang...</option>
+            {coldStorages.map((c) => (
+              <option key={c.coldStorageId} value={c.coldStorageId}>
+                {c.csCode} — {c.csName}
+              </option>
+            ))}
+          </select>
+        )}
+      </section>
+
+      {warehouseId !== "" && (
+        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch AVAILABLE</h2>
+          <p className="text-xs text-gray-500">
+            Survivor: satu radio. Donor: centang batch lain. Survivor dapat dipilih otomatis dari tautan stock opname (under 650 kg).
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-[13px]">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase text-gray-500">
+                  <th className="px-2 py-2">Survivor</th>
+                  <th className="px-2 py-2">Donor</th>
+                  <th className="px-2 py-2">Batch</th>
+                  <th className="px-2 py-2">Species</th>
+                  <th className="px-2 py-2 text-right">Stok</th>
+                  <th className="px-2 py-2">Kandang</th>
+                  <th className="px-2 py-2">Under 650 kg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mergeableRows.map((r) => (
+                  <tr key={r.batchId} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="px-2 py-2">
+                      <input
+                        type="radio"
+                        name="survivor"
+                        checked={survivorId === r.batchId}
+                        onChange={() => {
+                          setSurvivorId(r.batchId);
+                          setDonorIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(r.batchId);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="checkbox"
+                        disabled={survivorId === r.batchId}
+                        checked={donorIds.has(r.batchId)}
+                        onChange={() => toggleDonor(r.batchId)}
+                      />
+                    </td>
+                    <td className="px-2 py-2 font-medium">{r.batchNumber}</td>
+                    <td className="px-2 py-2">{r.speciesName ?? "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {r.jumlahStok ?? 0} {r.unit ?? ""}
+                    </td>
+                    <td className="px-2 py-2">{r.kandangMacanCode ?? "—"}</td>
+                    <td className="px-2 py-2">
+                      {r.kandangUnderCapacity ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                          Ya
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {mergeableRows.length === 0 && (
+              <p className="py-4 text-sm text-gray-500">Tidak ada batch AVAILABLE di gudang ini.</p>
+            )}
+          </div>
+          <Button
+            type="button"
+            onClick={() => void handleMerge()}
+            disabled={busy || survivorId === "" || donorIds.size === 0}
+          >
+            {busy ? "Menggabung..." : "Gabungkan ke survivor"}
+          </Button>
+        </section>
+      )}
+
+      {result && (
+        <section className="rounded-xl border border-green-200 bg-green-50/80 p-5 text-sm dark:border-green-900 dark:bg-green-950/30">
+          <h3 className="font-semibold text-green-900 dark:text-green-100">Hasil penggabungan</h3>
+          <p className="mt-1 text-green-800 dark:text-green-200">
+            Survivor <strong>{result.survivorBatchNumber}</strong> — total{" "}
+            <span className="tabular-nums">{String(result.survivorTotalQtyKg)}</span> kg
+            {result.survivorFishSkuCode ? (
+              <>
+                {" "}
+                · SKU survivor: <strong>{result.survivorFishSkuCode}</strong>
+              </>
+            ) : null}
+          </p>
+          {result.warnings?.length ? (
+            <ul className="mt-2 list-disc pl-5 text-amber-900 dark:text-amber-200">
+              {result.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
+          {result.lineage?.length ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400">Lineage donor</p>
+              <ul className="mt-1 space-y-1 text-xs">
+                {result.lineage.map((l) => (
+                  <li key={l.donorBatchId}>
+                    {l.donorBatchNumber} — inbound {l.donorInboundReceiptId ?? "—"} —{" "}
+                    <span className="tabular-nums">{String(l.transferredQtyKg)}</span> kg
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      )}
+    </div>
+  );
+}
+
+export default function BatchMergePage() {
+  return (
+    <ProtectedRoute>
+      <AppShell>
+        <Suspense fallback={<div className="p-6 text-sm text-gray-500">Memuat…</div>}>
+          <BatchMergePageInner />
+        </Suspense>
+      </AppShell>
+    </ProtectedRoute>
+  );
+}

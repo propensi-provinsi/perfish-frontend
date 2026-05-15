@@ -106,7 +106,7 @@ function shortColdStorageLabel(full: string): string {
 const STATUS_CONFIG: Record<InboundStatus, { label: string; cls: string }> = {
   DRAFT: { label: "Draft", cls: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
   WEIGHING: { label: "Weighing", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
-  QC_CHECK: { label: "QC Check", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
+  QC_CHECK: { label: "Siap paletisasi", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
   PENDING: { label: "Pending", cls: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200" },
   APPROVED: { label: "Approved", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
   REJECTED: { label: "Rejected", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
@@ -232,7 +232,7 @@ function InboundIkanContent() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inbound List Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-xl">
-            Registrasi kedatangan truk, tally weighing, inspeksi QC, palletisasi, hingga penerimaan selesai.
+            Registrasi kedatangan truk, sizing &amp; grading per basket, paletisasi ke kandang macan, hingga penerimaan selesai.
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -267,7 +267,7 @@ function InboundIkanContent() {
             <option value="">Semua Status</option>
             <option value="DRAFT">Draft</option>
             <option value="WEIGHING">Weighing</option>
-            <option value="QC_CHECK">QC Check</option>
+            <option value="QC_CHECK">Siap paletisasi</option>
             <option value="PENDING">Pending</option>
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
@@ -285,7 +285,7 @@ function InboundIkanContent() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <SummaryCard label="Draft" value={loadingReceivings ? "…" : String(draftCount)} />
           <SummaryCard label="Weighing" value={loadingReceivings ? "…" : String(weighingCount)} />
-          <SummaryCard label="QC Check" value={loadingReceivings ? "…" : String(qcCount)} />
+          <SummaryCard label="Siap paletisasi" value={loadingReceivings ? "…" : String(qcCount)} />
           <SummaryCard label="Pending" value={loadingReceivings ? "…" : String(pendingCount)} />
           <SummaryCard label="Approved" value={loadingReceivings ? "…" : String(approvedCount)} />
           <SummaryCard label="Rejected" value={loadingReceivings ? "…" : String(rejectedCount)} />
@@ -336,12 +336,12 @@ function InboundIkanContent() {
                         <div className="inline-flex gap-2 flex-wrap">
                           {canWeighPallet && (row.status === "DRAFT" || row.status === "WEIGHING") && (
                             <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                              {row.status === "DRAFT" ? "Mulai Tally" : "Lanjut Tally"}
+                              {row.status === "DRAFT" ? "Mulai sizing & grading" : "Lanjut sizing & grading"}
                             </Link>
                           )}
                           {canQc && row.status === "QC_CHECK" && !done && (
                             <button type="button" onClick={() => setQcRow(row)} className={actionBtn("warning", "xs")}>
-                              Inspeksi QC
+                              QC per baris (legacy)
                             </button>
                           )}
                           {canWeighPallet && row.status === "QC_CHECK" && done && (

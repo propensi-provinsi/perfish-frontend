@@ -89,6 +89,16 @@ export type WeighingLogRow = {
   grossWeight: number;
   tareWeight: number;
   netWeight: number;
+  fishSkuId?: number | null;
+  fishSkuCode?: string | null;
+  gradeId?: number | null;
+  gradeCode?: string | null;
+  suhuPenerimaan?: number | string | null;
+  itemSize?: string | null;
+  isRejectBasket?: boolean | null;
+  rejectedWeightKg?: number | string | null;
+  rejectReasonId?: number | null;
+  qcSuhuSesuaiStandar?: boolean | null;
   weighedAt: string;
   weighedBy: string;
 };
@@ -98,8 +108,15 @@ export type PalletizationBatch = {
   batchNumber: string;
   speciesName: string;
   netWeightKg: number;
-  grossWeightKg: number;
-  tareWeightKg: number;
+  grossWeightKg: number | null;
+  tareWeightKg: number | null;
+  kandangMacanCode?: string | null;
+  fishSkuId?: number | null;
+  fishSkuCode?: string | null;
+  /** Grade QC / dari SKU mayoritas (mis. A, B, REJECT) */
+  qualityGrade?: string | null;
+  /** Batch dari basket reject (Sizing & Grading), terpisah dari kode grade SKU */
+  inboundRejectBatch?: boolean | null;
 };
 
 export type PalletizationResponseData = {
@@ -148,11 +165,28 @@ export async function getWeighingSummary(receiptId: string) {
   return data.data ?? [];
 }
 
-export async function submitWeighingLog(receiptId: string, payload: { lineId: string; grossWeight: number; tareWeight: number }) {
+export async function submitWeighingLog(
+  receiptId: string,
+  payload: {
+    lineId: string;
+    grossWeight: number;
+    tareWeight: number;
+    gradeId: number;
+    suhuPenerimaan: number;
+    itemSize: string;
+    isRejectBasket: boolean;
+    rejectReasonId?: number | null;
+  }
+) {
   const { data } = await apiClient.post<ApiResponse<WeighingLogRow>>(`/inbound-ikan/${receiptId}/weighing-log`, {
     line_id: payload.lineId,
     gross_weight: payload.grossWeight,
     tare_weight: payload.tareWeight,
+    grade_id: payload.gradeId,
+    suhu_penerimaan: payload.suhuPenerimaan,
+    item_size: payload.itemSize.trim(),
+    is_reject_basket: payload.isRejectBasket,
+    reject_reason_id: payload.isRejectBasket ? (payload.rejectReasonId ?? null) : null,
   });
   return data.data;
 }
@@ -170,8 +204,24 @@ export async function submitQcInspection(receiptId: string, barisQc: { lineId: s
   return data.data;
 }
 
-export async function palletize(receiptId: string, lines: { lineId: string; pallets: { grossWeightKg: number; tareWeightKg: number }[] }[]) {
-  const { data } = await apiClient.post<ApiResponse<PalletizationResponseData>>(`/inbound-ikan/${receiptId}/palletize`, { lines });
+export type KandangMacanPalletizePayload = {
+  /** Opsional — identitas utama stok memakai nomor batch sistem. */
+  code?: string | null;
+  pallet_gross_weight_kg: number;
+  pallet_tare_weight_kg: number;
+  /** Alokasi parsial (kg) per basket; diprioritaskan oleh backend */
+  basket_allocations?: { weighing_log_id: string; net_kg: number }[];
+  /** Legacy: seluruh net basket masuk satu kandang */
+  weighing_log_ids?: string[];
+};
+
+export async function palletize(
+  receiptId: string,
+  body:
+    | { lines: { lineId: string; pallets: { grossWeightKg: number; tareWeightKg: number }[] }[] }
+    | { kandang_macan: KandangMacanPalletizePayload[] }
+) {
+  const { data } = await apiClient.post<ApiResponse<PalletizationResponseData>>(`/inbound-ikan/${receiptId}/palletize`, body);
   return data.data;
 }
 
@@ -193,6 +243,11 @@ export async function addLineToReceipt(receiptId: string, payload: {
 export async function getAllPurchaseOrders() {
   const { data } = await apiClient.get<ApiResponse<PurchaseOrderRow[]>>("/inbound-ikan/purchase-orders/all");
   return data.data ?? [];
+}
+
+export async function getPurchaseOrder(poId: number) {
+  const { data } = await apiClient.get<ApiResponse<PurchaseOrderRow>>(`/inbound-ikan/purchase-orders/${poId}`);
+  return data.data;
 }
 
 export async function getReceiptBatches(receiptId: string) {
