@@ -15,6 +15,17 @@ export type BatchStatus = "QUARANTINE" | "AVAILABLE" | "EXPIRED" | "BLOCKED";
 
 export type QualityGrade = "PREMIUM" | "STANDARD" | "LOW" | "REJECT";
 
+/** Batch di loading bay (belum ada lokasi rack; API assignable-batches). */
+export interface LoadingBayBatchRow {
+  batchId: number;
+  batchNumber: string;
+  fishSpeciesId?: number | null;
+  fishSpeciesName?: string | null;
+  currentQuantity?: number | string | null;
+  unit?: string | null;
+  status?: BatchStatus | null;
+}
+
 // ── E05-PBI-01: Assign Location ───────────────────────────────────
 
 export interface AssignLocationRequest {
@@ -67,6 +78,11 @@ export interface ColdStorageStructureSummary {
   rackCount: number;
   positionCount: number;
   positionCountByStatus: Record<string, number>;
+  totalStockKg?: number | string | null;
+  totalStockTon?: number | string | null;
+  occupiedPositionCount?: number | null;
+  availablePositionCount?: number | null;
+  positionOccupancyRatePct?: number | null;
 }
 
 export interface ColdStorageStructureDetail {
@@ -80,6 +96,11 @@ export interface ColdStorageStructureDetail {
   rackCount: number;
   positionCount: number;
   positionCountByStatus: Record<string, number>;
+  totalStockKg?: number | string | null;
+  totalStockTon?: number | string | null;
+  occupiedPositionCount?: number | null;
+  availablePositionCount?: number | null;
+  positionOccupancyRatePct?: number | null;
   blocks: {
     blockId: number;
     blockCode: string;
@@ -95,6 +116,9 @@ export interface ColdStorageStructureDetail {
         positionCode: string;
         status: string | null;
         isActive: boolean | null;
+        occupantBatchId?: number | null;
+        occupantBatchNumber?: string | null;
+        occupantStockKg?: number | string | null;
       }[];
     }[];
   }[];
@@ -121,6 +145,10 @@ export interface ColdStorageStockRow {
   unit: UnitType | null;
   expirationDate: string | null;
   daysToExpire: number;
+  kandangMacanCode?: string | null;
+  kandangNominalCapacityKg?: number | string | null;
+  kandangUnderCapacity?: boolean | null;
+  kandangUtilizationPct?: number | string | null;
 }
 
 // ── E05-PBI-05: Disposal ──────────────────────────────────────────
@@ -142,6 +170,7 @@ export interface DisposalResponse {
   remainingAfterDisposal: number | string;
   disposedAt: string;
   disposedBy: string | null;
+  beritaAcaraStoredName?: string | null;
 }
 
 export interface StorageAreaOption {
@@ -151,6 +180,73 @@ export interface StorageAreaOption {
   warehouseId: number;
   storageAreaCode: string;
   displayName: string;
+}
+
+// ── Stock opname & gabung batch ───────────────────────────────────
+
+export interface StockOpnameLineResponse {
+  lineId: number;
+  batchId?: number | null;
+  batchNumber?: string | null;
+  kandangMacanCode?: string | null;
+  speciesId?: number | null;
+  speciesName?: string | null;
+  fishSkuId?: number | null;
+  fishSkuCode?: string | null;
+  systemQtyKg: number | string;
+  countedQtyKg?: number | string | null;
+  varianceKg?: number | string | null;
+  shrinkagePct?: number | string | null;
+  targetStorageTempC?: number | string | null;
+  countedTempC?: number | string | null;
+  /** OK | WARNING | NO_TARGET | NOT_MEASURED */
+  temperatureStatus?: string | null;
+  underKandangNominalKg?: boolean | null;
+}
+
+export interface StockOpnameSessionResponse {
+  sessionId: number;
+  coldStorageId: number | null;
+  coldStorageCode: string | null;
+  coldStorageName: string | null;
+  periodYyyymm: number;
+  status: string;
+  notes: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+  lines: StockOpnameLineResponse[];
+}
+
+export interface StockOpnameCreatePayload {
+  coldStorageId: number;
+  periodYyyymm: number;
+  notes?: string;
+}
+
+export interface StockOpnameLinesUpdatePayload {
+  lines: { lineId: number; countedQtyKg: number; countedTempC?: number | null }[];
+}
+
+export interface BatchMergePayload {
+  survivorBatchId: number;
+  donorBatchIds: number[];
+}
+
+export interface BatchMergeLineageItem {
+  donorBatchId: number;
+  donorBatchNumber: string;
+  donorInboundReceiptId: string | null;
+  transferredQtyKg: number | string;
+}
+
+export interface BatchMergeResponseData {
+  survivorBatchId: number;
+  survivorBatchNumber: string;
+  survivorTotalQtyKg: number | string;
+  survivorFishSkuId?: number | null;
+  survivorFishSkuCode?: string | null;
+  warnings: string[];
+  lineage: BatchMergeLineageItem[];
 }
 
 // ── E05-PBI-04: Move Batch ───────────────────────────────────────
@@ -211,6 +307,7 @@ export interface BatchDisposalHistoryItem {
   unit: string | null;
   alasan: string;
   remainingAfterDisposal: string | null;
+  beritaAcaraStoredName?: string | null;
 }
 
 export interface BatchTimelineItem {

@@ -5,10 +5,30 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Button from "@/components/ui/Button";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { getColdStorageStructureDetail } from "@/lib/coldstorage-api";
 import type { ColdStorageStructureDetail } from "@/types/coldstorage";
+
+function fmtKg(v: number | string | null | undefined) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
+}
+
+function fmtTon(v: number | string | null | undefined) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 4 })} t`;
+}
+
+function fmtPct(v: number | null | undefined) {
+  if (v == null) return "—";
+  return `${Number(v).toFixed(1)}%`;
+}
 
 function ColdStorageStructureDetailInner() {
   const params = useParams();
@@ -48,6 +68,39 @@ function ColdStorageStructureDetailInner() {
             Block, rack, dan posisi (aktif) pada gudang ini.
           </p>
         </div>
+        {Number.isFinite(id) && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              onClick={() => {
+                void (async () => {
+                  setLoading(true);
+                  setError(null);
+                  try {
+                    const d = await getColdStorageStructureDetail(id);
+                    setData(d);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Gagal memuat detail");
+                    setData(null);
+                  } finally {
+                    setLoading(false);
+                  }
+                })();
+              }}
+            >
+              Segarkan
+            </Button>
+            <Link
+              href={`/cold-storage/stock-opname?coldStorageId=${id}`}
+              className="inline-flex items-center rounded-lg bg-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-hover"
+            >
+              Stock opname
+            </Link>
+          </div>
+        )}
       </div>
       <ColdStorageModuleNav />
 
@@ -59,7 +112,7 @@ function ColdStorageStructureDetailInner() {
 
       {!loading && data && (
         <>
-          <section className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-dark-card md:grid-cols-4">
+          <section className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-dark-card md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <div>
               <p className="text-xs text-gray-500">Block aktif</p>
               <p className="text-lg font-semibold tabular-nums">{data.blockCount}</p>
@@ -71,6 +124,20 @@ function ColdStorageStructureDetailInner() {
             <div>
               <p className="text-xs text-gray-500">Posisi aktif</p>
               <p className="text-lg font-semibold tabular-nums">{data.positionCount}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Stok di gudang (ton)</p>
+              <p className="text-lg font-semibold tabular-nums">{fmtTon(data.totalStockTon ?? null)}</p>
+              <p className="text-xs text-gray-500">{fmtKg(data.totalStockKg)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Okupansi posisi</p>
+              <p className="text-lg font-semibold tabular-nums">{fmtPct(data.positionOccupancyRatePct ?? null)}</p>
+              <p className="text-xs text-gray-500">
+                {data.occupiedPositionCount != null && data.availablePositionCount != null
+                  ? `${data.occupiedPositionCount} terisi · ${data.availablePositionCount} kosong`
+                  : "—"}
+              </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Per status posisi</p>
@@ -113,6 +180,8 @@ function ColdStorageStructureDetailInner() {
                             <tr className="text-left text-gray-500">
                               <th className="py-1 pr-3">Kode posisi</th>
                               <th className="py-1 pr-3">Status</th>
+                              <th className="py-1 pr-3">Batch</th>
+                              <th className="py-1 pr-3 text-right">Stok (kg)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -121,6 +190,18 @@ function ColdStorageStructureDetailInner() {
                                 <td className="py-1 pr-3 font-mono">{p.positionCode}</td>
                                 <td className="py-1 pr-3">
                                   <PositionStatusBadge status={p.status} />
+                                </td>
+                                <td className="py-1 pr-3 text-gray-700 dark:text-gray-200">
+                                  {p.occupantBatchNumber ? (
+                                    <span title={`Batch #${p.occupantBatchId ?? ""}`}>{p.occupantBatchNumber}</span>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
+                                  )}
+                                </td>
+                                <td className="py-1 pr-3 text-right tabular-nums text-gray-700 dark:text-gray-200">
+                                  {p.occupantStockKg != null && p.occupantStockKg !== ""
+                                    ? fmtKg(p.occupantStockKg)
+                                    : "—"}
                                 </td>
                               </tr>
                             ))}

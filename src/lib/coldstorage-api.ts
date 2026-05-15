@@ -11,21 +11,34 @@ import type {
   AssignLocationRequest,
   AssignLocationResponse,
   BatchHistoryResponse,
+  BatchMergePayload,
+  BatchMergeResponseData,
   ColdStorageStockRow,
   ColdStorageStructureDetail,
   ColdStorageStructureSummary,
-  DisposalRequest,
   DisposalResponse,
   MoveBatchRequest,
   MoveBatchResponse,
   StorageAreaOption,
   StockCategoryStatus,
+  StockOpnameCreatePayload,
+  StockOpnameLinesUpdatePayload,
+  StockOpnameSessionResponse,
+  LoadingBayBatchRow,
 } from "@/types/coldstorage";
 
 const BASE = "/v1/coldstorage";
 
 function unwrap<T>(resp: { data: ApiResponse<T> }) {
   return resp.data.data;
+}
+
+export async function listLoadingBayBatches(search = "") {
+  const resp = await apiClient.get<ApiResponse<LoadingBayBatchRow[]>>(
+    `${BASE}/assignable-batches`,
+    { params: search ? { search } : undefined }
+  );
+  return unwrap(resp);
 }
 
 export async function assignLocation(payload: AssignLocationRequest) {
@@ -87,12 +100,36 @@ export async function listColdStorageStocks(params?: {
   return unwrap(resp);
 }
 
-export async function disposeBatch(payload: DisposalRequest) {
-  const resp = await apiClient.post<ApiResponse<DisposalResponse>>(
-    `${BASE}/disposal`,
-    payload
-  );
+/** Disposal wajib menyertakan Berita Acara Pemusnahan (multipart). */
+export async function disposeBatchMultipart(params: {
+  batchId: number;
+  jumlahDibuang: number | string;
+  alasan: string;
+  beritaAcara: File;
+}) {
+  const form = new FormData();
+  form.append("batchId", String(params.batchId));
+  form.append("jumlahDibuang", String(params.jumlahDibuang));
+  form.append("alasan", params.alasan);
+  form.append("beritaAcara", params.beritaAcara);
+  const resp = await apiClient.post<ApiResponse<DisposalResponse>>(`${BASE}/disposal`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return unwrap(resp);
+}
+
+/** Unduh file BAP yang tersimpan untuk disposal (blob + nama file dari header). */
+export async function downloadDisposalBeritaAcara(disposalId: number) {
+  const resp = await apiClient.get<Blob>(`${BASE}/disposals/${disposalId}/berita-acara`, {
+    responseType: "blob",
+  });
+  const cd = resp.headers["content-disposition"] as string | undefined;
+  let filename = `berita-acara-${disposalId}`;
+  if (cd) {
+    const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i) ?? cd.match(/filename="([^"]+)"/);
+    if (m?.[1]) filename = decodeURIComponent(m[1].trim());
+  }
+  return { blob: resp.data, filename };
 }
 
 export async function listDisposalHistory(batchId?: number) {
@@ -136,5 +173,48 @@ export async function getColdStorageStructureDetail(coldStorageId: number) {
   const resp = await apiClient.get<ApiResponse<ColdStorageStructureDetail>>(
     `${BASE}/structure/${coldStorageId}`
   );
+  return unwrap(resp);
+}
+
+export async function listStockOpnameSessions(coldStorageId?: number) {
+  const resp = await apiClient.get<ApiResponse<StockOpnameSessionResponse[]>>(
+    `${BASE}/stock-opname/sessions`,
+    { params: coldStorageId != null ? { coldStorageId } : undefined }
+  );
+  return unwrap(resp);
+}
+
+export async function getStockOpnameSession(sessionId: number) {
+  const resp = await apiClient.get<ApiResponse<StockOpnameSessionResponse>>(
+    `${BASE}/stock-opname/sessions/${sessionId}`
+  );
+  return unwrap(resp);
+}
+
+export async function createStockOpnameSession(payload: StockOpnameCreatePayload) {
+  const resp = await apiClient.post<ApiResponse<StockOpnameSessionResponse>>(
+    `${BASE}/stock-opname/sessions`,
+    payload
+  );
+  return unwrap(resp);
+}
+
+export async function updateStockOpnameLines(sessionId: number, payload: StockOpnameLinesUpdatePayload) {
+  const resp = await apiClient.patch<ApiResponse<StockOpnameSessionResponse>>(
+    `${BASE}/stock-opname/sessions/${sessionId}/lines`,
+    payload
+  );
+  return unwrap(resp);
+}
+
+export async function finalizeStockOpnameSession(sessionId: number) {
+  const resp = await apiClient.post<ApiResponse<StockOpnameSessionResponse>>(
+    `${BASE}/stock-opname/sessions/${sessionId}/finalize`
+  );
+  return unwrap(resp);
+}
+
+export async function mergeColdStorageBatches(payload: BatchMergePayload) {
+  const resp = await apiClient.post<ApiResponse<BatchMergeResponseData>>(`${BASE}/batch-merge`, payload);
   return unwrap(resp);
 }

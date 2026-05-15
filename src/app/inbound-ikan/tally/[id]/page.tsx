@@ -7,6 +7,7 @@ import AppShell from "@/components/layout/AppShell";
 import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
 import apiClient from "@/lib/api";
 import type { ApiResponse, FishSpeciesResponse, FishFormResponse } from "@/types";
+import type { FishGradeResponse } from "@/types/fish";
 import {
   type WeighingLogRow,
   type WeighingSummaryRow,
@@ -49,6 +50,8 @@ type OfflineLog = {
 
 const OFFLINE_KEY = "inbound_offline_weighing";
 
+type RejectReasonOpt = { rejectReasonId: number; reasonCode: string; reasonName: string; isActive: boolean };
+
 function getOfflineLogs(): OfflineLog[] {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_KEY) || "[]");
@@ -77,6 +80,13 @@ function InboundTallyContent() {
   const [selectedLineId, setSelectedLineId] = useState<string>("");
   const [grossWeight, setGrossWeight] = useState("");
   const [tareWeight, setTareWeight] = useState("");
+  const [gradeId, setGradeId] = useState<number | "">("");
+  const [suhu, setSuhu] = useState("");
+  const [basketSize, setBasketSize] = useState("");
+  const [isRejectBasket, setIsRejectBasket] = useState(false);
+  const [rejectReasonId, setRejectReasonId] = useState<number | "">("");
+  const [gradeList, setGradeList] = useState<FishGradeResponse[]>([]);
+  const [rejectReasons, setRejectReasons] = useState<RejectReasonOpt[]>([]);
   const [logs, setLogs] = useState<WeighingLogRow[]>([]);
   const [summary, setSummary] = useState<WeighingSummaryRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -136,8 +146,28 @@ function InboundTallyContent() {
   useEffect(() => { void loadSummary(); }, [loadSummary]);
   useEffect(() => { void loadPO(); }, [loadPO]);
   useEffect(() => {
+    const line = receipt?.lines.find((l) => l.id === selectedLineId);
+    if (line?.size != null) setBasketSize(line.size);
+  }, [receipt, selectedLineId]);
+
+  useEffect(() => {
     setOfflinePending(getOfflineLogs().filter((l) => l.receiptId === receiptId));
   }, [receiptId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [gRes, rrRes] = await Promise.all([
+          apiClient.get<ApiResponse<FishGradeResponse[]>>("/v1/master/fish/grades"),
+          apiClient.get<ApiResponse<RejectReasonOpt[]>>("/v1/master/reject-reasons"),
+        ]);
+        setGradeList((gRes.data.data ?? []).filter((g) => g.isActive === true));
+        setRejectReasons((rrRes.data.data ?? []).filter((r) => r.isActive === true));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   const poDetailMap = useMemo(() => {
     if (!poData) return new Map<number, number>();
@@ -164,26 +194,12 @@ function InboundTallyContent() {
     const pending = getOfflineLogs().filter((l) => l.receiptId === receiptId);
     if (pending.length === 0) return;
     setSyncing(true);
-    let synced = 0;
     for (const log of pending) {
-      try {
-        await submitWeighingLog(receiptId, {
-          lineId: log.lineId,
-          grossWeight: log.grossWeight,
-          tareWeight: log.tareWeight,
-        });
-        removeOfflineLog(log.key);
-        synced++;
-      } catch {
-        break;
-      }
+      removeOfflineLog(log.key);
     }
     setSyncing(false);
     setOfflinePending(getOfflineLogs().filter((l) => l.receiptId === receiptId));
-    if (synced > 0) {
-      setMsg({ type: "success", text: `${synced} data offline berhasil disinkronkan.` });
-      await Promise.all([loadLogs(), loadSummary(), loadReceipt()]);
-    }
+    setMsg({ type: "warning", text: "Data offline lama dihapus. Sizing & Grading per basket tidak mendukung sinkronisasi offline otomatis." });
   }
 
   useEffect(() => {
@@ -201,29 +217,25 @@ function InboundTallyContent() {
         lineId: selectedLineId,
         grossWeight: Number(grossWeight),
         tareWeight: Number(tareWeight),
+        gradeId: Number(gradeId),
+        suhuPenerimaan: Number(suhu),
+        itemSize: basketSize.trim(),
+        isRejectBasket,
+        rejectReasonId: isRejectBasket && rejectReasonId !== "" ? Number(rejectReasonId) : null,
       });
       setGrossWeight("");
       setTareWeight("");
-      setMsg({ type: "success", text: `Basket #${nextBasketNo} tersimpan.` });
+      setSuhu("");
+      setIsRejectBasket(false);
+      setRejectReasonId("");
+      setMsg({ type: "success", text: `Basket #${nextBasketNo} tersimpan (SKU per grade).` });
       await Promise.all([loadLogs(), loadSummary(), loadReceipt()]);
-    } catch (err) {
-      if (!navigator.onLine || (err instanceof Error && err.message.includes("Network"))) {
-        const offlineEntry: OfflineLog = {
-          key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          receiptId,
-          lineId: selectedLineId,
-          grossWeight: Number(grossWeight),
-          tareWeight: Number(tareWeight),
-          savedAt: new Date().toISOString(),
-        };
-        saveOfflineLog(offlineEntry);
-        setOfflinePending((prev) => [...prev, offlineEntry]);
-        setGrossWeight("");
-        setTareWeight("");
-        setMsg({ type: "warning", text: `Basket disimpan offline. Akan disinkronkan saat koneksi pulih.` });
-      } else {
-        setMsg({ type: "error", text: "Gagal menyimpan timbangan." });
-      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setMsg({
+        type: "error",
+        text: axiosErr.response?.data?.message || "Gagal menyimpan timbangan / Sizing & Grading.",
+      });
     } finally {
       setSaving(false);
     }
@@ -234,9 +246,9 @@ function InboundTallyContent() {
     setMsg(null);
     try {
       await finishWeighing(receiptId);
-      setMsg({ type: "success", text: "Tally weighing selesai! Status: QC_CHECK." });
+      setMsg({ type: "success", text: "Sizing & Grading selesai. Lanjutkan paletisasi ke kandang macan." });
       await loadReceipt();
-      setTimeout(() => router.push("/inbound-ikan"), 1500);
+      setTimeout(() => router.push(`/inbound-ikan/palletize/${receiptId}`), 1200);
     } catch {
       setMsg({ type: "error", text: "Gagal menyelesaikan weighing." });
     } finally {
@@ -297,8 +309,11 @@ function InboundTallyContent() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Tally Weighing Entry</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sizing &amp; Grading</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Setiap basket: gross/tare, size, grade, suhu. Centang <em>basket reject</em> bila mutu ditolak (tetap dapat SKU dan bisa masuk kandang macan). SKU mengikuti grade.
+        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
           {receipt ? `${receipt.batchCode} — ${receipt.supplierName} (${receipt.status})` : "Memuat…"}
         </p>
         {receipt?.poCode && <p className="text-xs text-gray-400 dark:text-gray-500">PO: {receipt.poCode}</p>}
@@ -369,16 +384,87 @@ function InboundTallyContent() {
               <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Tare Weight / Keranjang (kg)</label>
               <input type="number" step="0.001" min={0} value={tareWeight} onChange={(e) => setTareWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-3 text-lg font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
             </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Size (per basket)</label>
+              <input
+                type="text"
+                value={basketSize}
+                onChange={(e) => setBasketSize(e.target.value)}
+                placeholder="contoh: Small, 1–2 kg"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade (SKU per kombinasi spesies–bentuk–grade)</label>
+              <select
+                value={gradeId === "" ? "" : gradeId}
+                onChange={(e) => setGradeId(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                required
+              >
+                <option value="">Pilih grade</option>
+                {gradeList.map((g) => (
+                  <option key={g.gradeId} value={g.gradeId}>{g.gradeCode} — {g.gradeName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Suhu penerimaan (°C)</label>
+              <input type="number" step="0.1" value={suhu} onChange={(e) => setSuhu(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-white/5">
+              <input
+                id="reject-basket"
+                type="checkbox"
+                checked={isRejectBasket}
+                onChange={(e) => {
+                  setIsRejectBasket(e.target.checked);
+                  if (!e.target.checked) setRejectReasonId("");
+                }}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
+                Basket reject (mutu) — tetap dapat SKU; bisa dialokasikan ke kandang macan seperti basket lain
+              </label>
+            </div>
+            {isRejectBasket && (
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Alasan reject (wajib)</label>
+                <select
+                  value={rejectReasonId === "" ? "" : rejectReasonId}
+                  onChange={(e) => setRejectReasonId(e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                  required={isRejectBasket}
+                >
+                  <option value="">— Pilih alasan —</option>
+                  {rejectReasons.map((r) => (
+                    <option key={r.rejectReasonId} value={r.rejectReasonId}>{r.reasonCode} — {r.reasonName}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
-          <button type="submit" disabled={saving || !selectedLineId} className={`w-full ${actionBtn("primary")}`}>
-            {saving ? "Menyimpan..." : "Submit Timbangan"}
+          <button
+            type="submit"
+            disabled={
+              saving
+              || !selectedLineId
+              || gradeId === ""
+              || suhu.trim() === ""
+              || !basketSize.trim()
+              || (isRejectBasket && rejectReasonId === "")
+            }
+            className={`w-full ${actionBtn("primary")}`}
+          >
+            {saving ? "Menyimpan..." : "Simpan basket (Sizing & Grading)"}
           </button>
         </form>
       )}
 
       {canFinish && (
         <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className={`w-full ${actionBtn("warning")}`}>
-          {finishing ? "Memproses…" : "Selesai Timbang → Lanjut QC"}
+          {finishing ? "Memproses…" : "Selesai Sizing & Grading → Paletisasi"}
         </button>
       )}
 
@@ -450,12 +536,17 @@ function InboundTallyContent() {
                 <th className="px-4 py-2 font-medium text-right">Gross (kg)</th>
                 <th className="px-4 py-2 font-medium text-right">Tare (kg)</th>
                 <th className="px-4 py-2 font-medium text-right">Net (kg)</th>
+                <th className="px-4 py-2 font-medium">Size</th>
+                <th className="px-4 py-2 font-medium">SKU</th>
+                <th className="px-4 py-2 font-medium">Grade</th>
+                <th className="px-4 py-2 font-medium text-right">Suhu</th>
+                <th className="px-4 py-2 font-medium text-center">Reject</th>
                 <th className="px-4 py-2 font-medium">Petugas</th>
               </tr>
             </thead>
             <tbody>
               {logs.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
+                <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
               ) : (
                 logs.map((row) => (
                   <tr key={row.id} className="border-t border-gray-100 dark:border-gray-800">
@@ -464,6 +555,17 @@ function InboundTallyContent() {
                     <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.grossWeight)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.tareWeight)}</td>
                     <td className="px-4 py-2 text-right tabular-nums font-semibold">{fmtKg(row.netWeight)}</td>
+                    <td className="px-4 py-2 text-xs">{row.itemSize ?? "—"}</td>
+                    <td className="px-4 py-2 font-mono text-[11px]">{row.fishSkuCode ?? "—"}</td>
+                    <td className="px-4 py-2 text-xs">{row.gradeCode ?? "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-xs">{row.suhuPenerimaan != null ? String(row.suhuPenerimaan) : "—"}</td>
+                    <td className="px-4 py-2 text-center text-xs">
+                      {row.isRejectBasket ? (
+                        <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-200">Ya</span>
+                      ) : (
+                        <span className="text-gray-400">Tidak</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2">{row.weighedBy}</td>
                   </tr>
                 ))
