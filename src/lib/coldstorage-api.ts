@@ -10,6 +10,7 @@ import type {
   AssignLocationContextResponse,
   AssignLocationRequest,
   AssignLocationResponse,
+  BatchDetailResponse,
   BatchHistoryResponse,
   BatchMergePayload,
   BatchMergeResponseData,
@@ -148,6 +149,13 @@ export async function moveBatch(payload: MoveBatchRequest) {
   return unwrap(resp);
 }
 
+export async function listBatchesWithMovementHistory() {
+  const resp = await apiClient.get<
+    ApiResponse<{ batchId: number; batchNumber: string; fishSpeciesName?: string | null; status?: string }[]>
+  >(`${BASE}/batches-with-movement-history`);
+  return unwrap(resp);
+}
+
 export async function listBatchMoveHistory(batchId: number) {
   const resp = await apiClient.get<ApiResponse<AssignLocationResponse[]>>(
     `${BASE}/batches/${batchId}/move-history`
@@ -158,6 +166,21 @@ export async function listBatchMoveHistory(batchId: number) {
 export async function getBatchHistory(batchId: number) {
   const resp = await apiClient.get<ApiResponse<BatchHistoryResponse>>(
     `${BASE}/batch/${batchId}/history`
+  );
+  return unwrap(resp);
+}
+
+export async function getBatchDetailById(batchId: number) {
+  const resp = await apiClient.get<ApiResponse<BatchDetailResponse>>(
+    `${BASE}/batches/${batchId}/detail`
+  );
+  return unwrap(resp);
+}
+
+export async function getBatchDetailByNumber(batchNumber: string) {
+  const encoded = encodeURIComponent(batchNumber.trim());
+  const resp = await apiClient.get<ApiResponse<BatchDetailResponse>>(
+    `${BASE}/batches/by-number/${encoded}/detail`
   );
   return unwrap(resp);
 }

@@ -4,14 +4,24 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
+import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
+import { useAuth } from "@/context/AuthContext";
 import {
   type InboundReceiptRow,
   type PalletizationBatch,
+  type PoReceiveComparison,
   type PurchaseOrderRow,
+  approveInbound,
+  comparePoInboundKg,
   getInboundReceipt,
   getPurchaseOrder,
   getReceiptBatches,
+  poReceiveComparisonBadgeClass,
+  poReceiveComparisonLabel,
+  poReceiveComparisonMessage,
+  rejectInbound,
 } from "@/lib/inbound-api";
+import { actionBtn } from "@/lib/ui-action";
 import { QRCodeSVG } from "qrcode.react";
 
 function fmtKg(v: number | string | null | undefined): string {
@@ -38,6 +48,13 @@ function isInboundRejectBatch(b: PalletizationBatch): boolean {
   return b.qualityGrade === "REJECT";
 }
 
+function formatDateDdMmYyyy(isoDate: string): string {
+  if (!isoDate) return "—";
+  const [y, m, d] = isoDate.split("-");
+  if (!y || !m || !d) return isoDate;
+  return `${d}/${m}/${y}`;
+}
+
 export default function InboundSummaryPage() {
   return (
     <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "WAREHOUSE_STAFF", "QC_SPECIALIST", "SUPERADMIN", "KEPALA_CABANG"]}>
@@ -51,12 +68,17 @@ export default function InboundSummaryPage() {
 function InboundSummaryContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const receiptId = params.id;
   const [receipt, setReceipt] = useState<InboundReceiptRow | null>(null);
   const [batches, setBatches] = useState<PalletizationBatch[]>([]);
   const [po, setPo] = useState<PurchaseOrderRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [processing, setProcessing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +102,40 @@ function InboundSummaryContent() {
     void load();
   }, [load]);
 
+  async function handleApprove() {
+    setProcessing(true);
+    setMsg(null);
+    try {
+      await approveInbound(receiptId);
+      setShowApproveConfirm(false);
+      setMsg({ type: "success", text: "Penerimaan berhasil di-approve." });
+      await load();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal approve." });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!rejectReason.trim()) return;
+    setProcessing(true);
+    setMsg(null);
+    try {
+      await rejectInbound(receiptId, rejectReason.trim());
+      setShowRejectModal(false);
+      setRejectReason("");
+      setMsg({ type: "success", text: "Penerimaan berhasil di-reject." });
+      await load();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal reject." });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   if (loading) return <p className="p-8 text-center text-gray-500">Memuat…</p>;
   if (!receipt) return <p className="p-8 text-center text-gray-500">Data tidak ditemukan.</p>;
 
@@ -96,24 +152,47 @@ function InboundSummaryContent() {
 
   const poOrderedTotalKg =
     po?.details?.reduce((s, d) => s + (d.orderedWeightKg != null ? Number(d.orderedWeightKg) : 0), 0) ?? 0;
-  const poVsInboundOk =
-    !po || poOrderedTotalKg <= 0 ? null : Math.abs(poOrderedTotalKg - totalBatchNetKg) <= Math.max(0.02 * poOrderedTotalKg, 2);
+  const poReceiveStatus: PoReceiveComparison | null =
+    batches.length > 0 && poOrderedTotalKg > 0 ? comparePoInboundKg(poOrderedTotalKg, totalBatchNetKg) : null;
+
+  const isPending = receipt.status === "PENDING";
+  const canAct =
+    isPending &&
+    (user?.role === "WAREHOUSE_ADMIN" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN");
 
   return (
     <div className="space-y-6">
       <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inbound Summary</h1>
         <button
           type="button"
           onClick={() => router.push("/inbound-ikan")}
-          className="mb-3 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200"
+          className={`mt-3 ${actionBtn("neutral", "sm")}`}
         >
           Kembali
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Inbound Summary</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {receipt.batchCode} — {receipt.supplierName}
-        </p>
-        {receipt.poCode && <p className="text-xs text-gray-400 dark:text-gray-500">PO: {receipt.poCode}</p>}
+        <dl className="mt-4 space-y-2 text-sm">
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-gray-500 dark:text-gray-400">Kode Penerimaan</dt>
+            <dd className="font-mono font-semibold text-gray-900 dark:text-gray-100">{receipt.batchCode}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-gray-500 dark:text-gray-400">Kode PO</dt>
+            <dd className="font-mono text-gray-900 dark:text-gray-100">{receipt.poCode ?? "—"}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-gray-500 dark:text-gray-400">Supplier</dt>
+            <dd className="text-gray-900 dark:text-gray-100">{receipt.supplierName}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-gray-500 dark:text-gray-400">Lokasi Penerimaan</dt>
+            <dd className="text-gray-900 dark:text-gray-100">{receipt.coldStorageLabel || "—"}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-gray-500 dark:text-gray-400">Tanggal Penerimaan</dt>
+            <dd className="text-gray-900 dark:text-gray-100">{formatDateDdMmYyyy(receipt.tanggalPenerimaan)}</dd>
+          </div>
+        </dl>
       </div>
 
       {msg && (
@@ -144,11 +223,22 @@ function InboundSummaryContent() {
       {po && (
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden dark:border-gray-700 dark:bg-dark-card">
           <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Kesesuaian dengan Purchase Order</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Membandingkan total berat yang dipesan pada PO <span className="font-mono">{po.poCode}</span> dengan total net
-              batch hasil paletisasi penerimaan ini.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-2 w-full">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Kesesuaian dengan Purchase Order</h2>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Membandingkan total berat yang dipesan pada PO <span className="font-mono">{po.poCode}</span> dengan total net
+                  batch hasil paletisasi penerimaan ini.
+                </p>
+              </div>
+              {poReceiveStatus && (
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold shrink-0 ${poReceiveComparisonBadgeClass(poReceiveStatus)}`}
+                >
+                  {poReceiveComparisonLabel(poReceiveStatus)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="p-4 space-y-4 text-sm">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -170,13 +260,17 @@ function InboundSummaryContent() {
             {!batches.length && (
               <p className="text-xs text-amber-700 dark:text-amber-300">Belum ada batch — bandingkan ulang setelah paletisasi.</p>
             )}
-            {batches.length > 0 && poOrderedTotalKg > 0 && (
+            {batches.length > 0 && poOrderedTotalKg > 0 && poReceiveStatus && (
               <p
-                className={`text-xs font-medium ${poVsInboundOk ? "text-green-700 dark:text-green-300" : "text-amber-800 dark:text-amber-200"}`}
+                className={`text-xs font-medium ${
+                  poReceiveStatus === "OK"
+                    ? "text-green-700 dark:text-green-300"
+                    : poReceiveStatus === "OVER_RECEIVE"
+                      ? "text-red-700 dark:text-red-300"
+                      : "text-amber-800 dark:text-amber-200"
+                }`}
               >
-                {poVsInboundOk
-                  ? "Total net batch selaras dengan total berat PO (dalam toleransi)."
-                  : "Total net batch berbeda dari total berat PO — tinjau kelebihan/kekurangan pengiriman atau beda konversi timbang."}
+                {poReceiveComparisonMessage(poReceiveStatus)}
               </p>
             )}
             <div className="overflow-x-auto border border-gray-100 rounded-lg dark:border-gray-700">
@@ -213,15 +307,10 @@ function InboundSummaryContent() {
 
       {batches.length > 0 && (
         <section className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch ({batches.length})</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 max-w-2xl">
-              Satu kartu = satu <code className="text-[11px]">master_batch</code> dengan nomor unik. Berat net = alokasi ikan; gross/tare = timbang pallet/kandang saat paletisasi.
-            </p>
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-              Total net semua batch: <strong className="tabular-nums">{fmtKg(totalBatchNetKg)} kg</strong>
-            </p>
-          </div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch ({batches.length})</h2>
+          <button type="button" onClick={() => window.print()} className={actionBtn("primary", "sm")}>
+            Cetak QR Code
+          </button>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {batches.map((b) => {
               const rejectBatch = isInboundRejectBatch(b);
@@ -294,14 +383,73 @@ function InboundSummaryContent() {
             );
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200"
-          >
-            Cetak QR Code
-          </button>
+          {canAct && (
+            <div className="flex flex-wrap justify-center gap-3 pt-2">
+              <button type="button" onClick={() => setShowRejectModal(true)} disabled={processing} className={actionBtn("danger")}>
+                Reject
+              </button>
+              <button type="button" onClick={() => setShowApproveConfirm(true)} disabled={processing} className={actionBtn("success")}>
+                Approve
+              </button>
+            </div>
+          )}
         </section>
+      )}
+
+      {showApproveConfirm && (
+        <ModalOverlay onClose={() => setShowApproveConfirm(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-dark-card space-y-4">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Konfirmasi Approval</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Yakin ingin menyetujui penerimaan <span className="font-mono font-semibold">{receipt.batchCode}</span>? Batch akan menjadi tersedia (AVAILABLE).
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowApproveConfirm(false)} className={actionBtn("neutral")}>
+                Batal
+              </button>
+              <button type="button" onClick={() => void handleApprove()} disabled={processing} className={actionBtn("success")}>
+                {processing ? "Memproses…" : "Ya, Approve"}
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
+      {showRejectModal && (
+        <ModalOverlay onClose={() => setShowRejectModal(false)}>
+          <div className="w-full max-w-xl rounded-2xl border border-red-100 bg-white p-6 shadow-2xl dark:border-red-900/50 dark:bg-dark-card space-y-5">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">Reject Penerimaan</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Kode <span className="font-mono font-semibold">{receipt.batchCode}</span> akan ditolak dan batch diblokir.
+              </p>
+            </div>
+            <Field label="Alasan Reject" required>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={4}
+                maxLength={255}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                placeholder="contoh: dokumen tidak valid / hasil tidak sesuai"
+                required
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowRejectModal(false)} className={actionBtn("neutral")}>
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleReject()}
+                disabled={!rejectReason.trim() || processing}
+                className={actionBtn("danger")}
+              >
+                {processing ? "Menyimpan…" : "Reject"}
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
       )}
     </div>
   );

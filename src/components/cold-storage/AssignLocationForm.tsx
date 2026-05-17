@@ -12,6 +12,7 @@ import {
   listStorageAreaOptions,
 } from "@/lib/coldstorage-api";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import { alertErrorClass, alertSuccessClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
 import type { ColdStorageData } from "@/types";
 import type {
   AssignLocationRequest,
@@ -181,36 +182,26 @@ export default function AssignLocationForm() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-navy dark:text-white">Penentuan Lokasi Penyimpanan Batch</h1>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">Penentuan Lokasi Cold Storage</h1>
         <p className="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
-          Menetapkan posisi rack pada batch yang saat ini berada di{" "}
-          <Link href="/storage/loading-bay" className="font-medium text-cyan hover:underline">
-            loading bay
-          </Link>{" "}
-          (belum punya lokasi aktif). Setelah disimpan, batch muncul di Monitor Stok cold storage.
+          Menetapkan posisi rack pada batch yang saat ini berada di loading bay
         </p>
       </header>
       <ColdStorageModuleNav />
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-      {success && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {success}
-        </div>
-      )}
+      {error && <div className={alertErrorClass}>{error}</div>}
+      {success && <div className={alertSuccessClass}>{success}</div>}
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">
+            <label className={labelClass}>
               Batch <span className="text-red-500">*</span>
             </label>
             <select
               value={batchId}
               onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : "")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              className={inputClass}
               disabled={loading}
               required
             >
@@ -225,13 +216,13 @@ export default function AssignLocationForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">
+            <label className={labelClass}>
               Gudang <span className="text-red-500">*</span>
             </label>
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              className={inputClass}
               disabled={loading || warehouseLocked}
               required
             >
@@ -243,7 +234,7 @@ export default function AssignLocationForm() {
               ))}
             </select>
             {warehouseLocked && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Gudang mengikuti cold storage pada penerimaan inbound. Perubahan gudang dilakukan melalui menu Pemindahan
                 Batch.
               </p>
@@ -251,13 +242,13 @@ export default function AssignLocationForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">
+            <label className={labelClass}>
               Storage Area <span className="text-red-500">*</span>
             </label>
             <select
               value={storageAreaId}
               onChange={(e) => setStorageAreaId(e.target.value ? Number(e.target.value) : "")}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              className={inputClass}
               required
               disabled={!warehouseId || !batchId || loading}
             >
@@ -273,7 +264,7 @@ export default function AssignLocationForm() {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">
+            <label className={labelClass}>
               Tanggal Masuk <span className="text-red-500">*</span>
             </label>
             <input
@@ -281,11 +272,11 @@ export default function AssignLocationForm() {
               value={tanggalMasuk}
               min={inboundReceiptDate ?? undefined}
               onChange={(e) => setTanggalMasuk(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              className={inputClass}
               required
             />
             {inboundReceiptDate && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Minimal mengikuti tanggal penerimaan inbound: <b>{inboundReceiptDate}</b>.
               </p>
             )}
@@ -293,13 +284,13 @@ export default function AssignLocationForm() {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Catatan (opsional)</label>
+          <label className={labelClass}>Catatan (opsional)</label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             maxLength={500}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+            className={inputClass}
             placeholder="Keterangan tambahan"
           />
         </div>

@@ -19,11 +19,18 @@ export type QualityGrade = "PREMIUM" | "STANDARD" | "LOW" | "REJECT";
 export interface LoadingBayBatchRow {
   batchId: number;
   batchNumber: string;
+  inboundReceiptId?: string | null;
+  inboundReceiptCode?: string | null;
+  lokasiPenerimaan?: string | null;
   fishSpeciesId?: number | null;
   fishSpeciesName?: string | null;
   currentQuantity?: number | string | null;
   unit?: string | null;
   status?: BatchStatus | null;
+  tanggalMasuk?: string | null;
+  umurSimpanDays?: number | null;
+  umurSimpanBulan?: number | null;
+  kategoriStatus?: StockCategoryStatus | null;
 }
 
 // ── E05-PBI-01: Assign Location ───────────────────────────────────
@@ -136,6 +143,10 @@ export interface ColdStorageStockRow {
   warehouseName: string;
   storageArea: string;
   tanggalMasuk: string;
+  inboundReceiptCode?: string | null;
+  tanggalPenerimaan?: string | null;
+  fishSkuCode?: string | null;
+  gradeLabel?: string | null;
   umurSimpanDays: number;
   umurSimpanBulan: number;
   kategoriStatus: StockCategoryStatus;
@@ -193,6 +204,8 @@ export interface StockOpnameLineResponse {
   speciesName?: string | null;
   fishSkuId?: number | null;
   fishSkuCode?: string | null;
+  qualityGrade?: string | null;
+  gradeLabel?: string | null;
   systemQtyKg: number | string;
   countedQtyKg?: number | string | null;
   varianceKg?: number | string | null;
@@ -254,7 +267,8 @@ export interface BatchMergeResponseData {
 export interface MoveBatchRequest {
   batch_id: number;
   lokasi_asal: number;
-  lokasi_tujuan: number;
+  destination_type?: "LOADING_BAY" | "COLD_STORAGE";
+  lokasi_tujuan?: number;
   notes?: string;
 }
 
@@ -327,4 +341,45 @@ export interface BatchHistoryResponse {
   movementHistory: BatchMovementHistoryItem[];
   disposalHistory: BatchDisposalHistoryItem[];
   timeline: BatchTimelineItem[];
+}
+
+/** Detail lengkap batch (monitor, loading bay, scan QR). */
+export interface MasterBatchDetail {
+  batchId: number;
+  batchNumber: string;
+  batchDate?: string | null;
+  fishSpeciesId?: number | null;
+  fishSpeciesName?: string | null;
+  totalQuantity?: number | string | null;
+  currentQuantity?: number | string | null;
+  unit?: UnitType | null;
+  productionDate?: string | null;
+  expirationDate?: string | null;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  status?: BatchStatus | null;
+  qualityGrade?: QualityGrade | null;
+  inboundReceiptId?: string | null;
+  inboundReceiptCode?: string | null;
+  lokasiPenerimaan?: string | null;
+  tanggalMasuk?: string | null;
+  umurSimpanDays?: number | null;
+  umurSimpanBulan?: number | null;
+  kategoriStatus?: StockCategoryStatus | null;
+  createdBy?: string | null;
+  createdAt?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface BatchDetailResponse {
+  batch: MasterBatchDetail;
+  inLoadingBay: boolean;
+  currentStock: ColdStorageStockRow | null;
+  assignContext: AssignLocationContextResponse | null;
+  history: BatchHistoryResponse;
+  /** Suhu penerimaan inbound (°C). */
+  receptionTempC?: number | string | null;
+  /** Suhu tampilan: terakhir stock opname, atau suhu penerimaan. */
+  storageTempC?: number | string | null;
 }

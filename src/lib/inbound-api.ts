@@ -1,7 +1,78 @@
 import apiClient from "@/lib/api";
 import type { ApiResponse } from "@/types";
 
-export type InboundStatus = "DRAFT" | "WEIGHING" | "QC_CHECK" | "PENDING" | "APPROVED" | "REJECTED";
+export type InboundStatus = "DRAFT" | "WEIGHING" | "QC_CHECK" | "IN_PROGRESS" | "PENDING" | "APPROVED" | "REJECTED";
+
+/** Filter ringkas di dashboard (5 kartu status). */
+export type InboundStatusFilter = "" | "DRAFT" | "INPUT_IN_PROGRESS" | "PENDING" | "APPROVED" | "REJECTED";
+
+export const INBOUND_INPUT_IN_PROGRESS_STATUSES: InboundStatus[] = ["WEIGHING", "QC_CHECK", "IN_PROGRESS"];
+
+export function isInputInProgressStatus(status: InboundStatus): boolean {
+  return INBOUND_INPUT_IN_PROGRESS_STATUSES.includes(status);
+}
+
+export function inboundStatusDisplayLabel(status: InboundStatus): string {
+  if (status === "DRAFT") return "Draft";
+  if (status === "PENDING") return "Waiting for Approval";
+  if (status === "APPROVED") return "Approved";
+  if (status === "REJECTED") return "Rejected";
+  if (isInputInProgressStatus(status)) return "Input In Progress";
+  return status;
+}
+
+const STATUS_BADGE_CLS: Record<InboundStatus, string> = {
+  DRAFT: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  WEIGHING: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
+  QC_CHECK: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
+  IN_PROGRESS: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
+  PENDING: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200",
+  APPROVED: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  REJECTED: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+};
+
+export function inboundStatusBadgeClass(status: InboundStatus): string {
+  return STATUS_BADGE_CLS[status] ?? STATUS_BADGE_CLS.DRAFT;
+}
+
+/** Perbandingan total net inbound vs total berat PO. */
+export type PoReceiveComparison = "UNDER_RECEIVE" | "OK" | "OVER_RECEIVE";
+
+export function comparePoInboundKg(
+  orderedKg: number,
+  inboundKg: number,
+  toleranceRatio = 0.02,
+  minToleranceKg = 2,
+): PoReceiveComparison | null {
+  if (orderedKg <= 0) return null;
+  const diff = inboundKg - orderedKg;
+  const tol = Math.max(orderedKg * toleranceRatio, minToleranceKg);
+  if (diff < -tol) return "UNDER_RECEIVE";
+  if (diff > tol) return "OVER_RECEIVE";
+  return "OK";
+}
+
+export function poReceiveComparisonLabel(status: PoReceiveComparison): string {
+  if (status === "UNDER_RECEIVE") return "Under Receive";
+  if (status === "OVER_RECEIVE") return "Over Receive";
+  return "OK";
+}
+
+export function poReceiveComparisonBadgeClass(status: PoReceiveComparison): string {
+  if (status === "UNDER_RECEIVE") return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200";
+  if (status === "OVER_RECEIVE") return "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-200";
+  return "bg-green-100 text-green-900 dark:bg-green-900/40 dark:text-green-200";
+}
+
+export function poReceiveComparisonMessage(status: PoReceiveComparison): string {
+  if (status === "UNDER_RECEIVE") {
+    return "Total net batch kurang dari total berat PO (under receive).";
+  }
+  if (status === "OVER_RECEIVE") {
+    return "Total net batch melebihi total berat PO (over receive).";
+  }
+  return "Total net batch selaras dengan total berat PO (dalam toleransi).";
+}
 
 export type InboundLineRow = {
   id: string;
@@ -103,6 +174,11 @@ export type WeighingLogRow = {
   weighedBy: string;
 };
 
+export type BatchBasketAllocation = {
+  weighingLogId: string;
+  netKg: number;
+};
+
 export type PalletizationBatch = {
   batchId: number;
   batchNumber: string;
@@ -117,6 +193,10 @@ export type PalletizationBatch = {
   qualityGrade?: string | null;
   /** Batch dari basket reject (Sizing & Grading), terpisah dari kode grade SKU */
   inboundRejectBatch?: boolean | null;
+  /** Basket referensi untuk memuat ulang form paletisasi */
+  weighingLogId?: string | null;
+  /** Alokasi per basket (kg) */
+  basketAllocations?: BatchBasketAllocation[];
 };
 
 export type PalletizationResponseData = {
@@ -152,6 +232,42 @@ export async function getOpenPurchaseOrders() {
 
 export async function finishWeighing(id: string) {
   return apiClient.patch(`/inbound-ikan/${id}/finish-weighing`);
+}
+
+export async function reopenWeighing(id: string) {
+  const { data } = await apiClient.patch<ApiResponse<InboundReceiptRow>>(`/inbound-ikan/${id}/reopen-weighing`);
+  return data.data;
+}
+
+export async function updateWeighingLog(
+  receiptId: string,
+  logId: string,
+  payload: {
+    lineId: string;
+    grossWeight: number;
+    tareWeight: number;
+    gradeId: number;
+    suhuPenerimaan: number;
+    itemSize: string;
+    isRejectBasket: boolean;
+    rejectReasonId?: number | null;
+  }
+) {
+  const { data } = await apiClient.put<ApiResponse<WeighingLogRow>>(`/inbound-ikan/${receiptId}/weighing-log/${logId}`, {
+    line_id: payload.lineId,
+    gross_weight: payload.grossWeight,
+    tare_weight: payload.tareWeight,
+    grade_id: payload.gradeId,
+    suhu_penerimaan: payload.suhuPenerimaan,
+    item_size: payload.itemSize.trim(),
+    is_reject_basket: payload.isRejectBasket,
+    reject_reason_id: payload.isRejectBasket ? (payload.rejectReasonId ?? null) : null,
+  });
+  return data.data;
+}
+
+export async function deleteWeighingLog(receiptId: string, logId: string) {
+  await apiClient.delete(`/inbound-ikan/${receiptId}/weighing-log/${logId}`);
 }
 
 export async function getWeighingLogs(receiptId: string, lineId?: string) {
@@ -285,6 +401,16 @@ export async function updatePurchaseOrder(poId: number, payload: {
 
 export async function deletePurchaseOrder(poId: number) {
   await apiClient.delete(`/inbound-ikan/purchase-orders/${poId}`);
+}
+
+export async function lockPurchaseOrder(poId: number) {
+  const { data } = await apiClient.post<ApiResponse<PurchaseOrderRow>>(`/inbound-ikan/purchase-orders/${poId}/lock`);
+  return data.data;
+}
+
+export async function submitForApproval(id: string) {
+  const { data } = await apiClient.patch<ApiResponse<InboundReceiptRow>>(`/inbound-ikan/${id}/submit-for-approval`);
+  return data.data;
 }
 
 export async function approveInbound(id: string) {

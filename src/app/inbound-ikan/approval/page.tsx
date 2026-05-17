@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
-import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
-import { type InboundReceiptRow, approveInbound, getInboundReceipts, rejectInbound } from "@/lib/inbound-api";
+import Link from "next/link";
+import { type InboundReceiptRow, getInboundReceipts } from "@/lib/inbound-api";
+import { actionBtn } from "@/lib/ui-action";
 
 export default function InboundApprovalPage() {
   return (
@@ -19,9 +20,6 @@ export default function InboundApprovalPage() {
 function InboundApprovalContent() {
   const [rows, setRows] = useState<InboundReceiptRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [rejecting, setRejecting] = useState<InboundReceiptRow | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [processingId, setProcessingId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const pendingRows = useMemo(() => rows.filter((r) => r.status === "PENDING"), [rows]);
@@ -39,39 +37,6 @@ function InboundApprovalContent() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-
-  async function handleApprove(id: string) {
-    setProcessingId(id);
-    setMsg(null);
-    try {
-      await approveInbound(id);
-      setMsg({ type: "success", text: "Penerimaan berhasil di-approve." });
-      await load();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal approve penerimaan." });
-    } finally {
-      setProcessingId(null);
-    }
-  }
-
-  async function handleReject() {
-    if (!rejecting || !rejectReason.trim()) return;
-    setProcessingId(rejecting.id);
-    setMsg(null);
-    try {
-      await rejectInbound(rejecting.id, rejectReason.trim());
-      setMsg({ type: "success", text: "Penerimaan berhasil di-reject." });
-      setRejecting(null);
-      setRejectReason("");
-      await load();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal reject penerimaan." });
-    } finally {
-      setProcessingId(null);
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -113,24 +78,9 @@ function InboundApprovalContent() {
                   <td className="px-4 py-2">{r.supplierName}</td>
                   <td className="px-4 py-2">{r.tanggalPenerimaan}</td>
                   <td className="px-4 py-2">
-                    <div className="inline-flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleApprove(r.id)}
-                        disabled={processingId === r.id}
-                        className="rounded-md border border-green-500/60 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRejecting(r)}
-                        disabled={processingId === r.id}
-                        className="rounded-md border border-red-500/60 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
-                      >
-                        Reject
-                      </button>
-                    </div>
+                    <Link href={`/inbound-ikan/summary/${r.id}`} className={actionBtn("primary", "xs")}>
+                      Approval
+                    </Link>
                   </td>
                 </tr>
               ))}
@@ -138,31 +88,6 @@ function InboundApprovalContent() {
           </table>
         </div>
       </section>
-
-      {rejecting && (
-        <ModalOverlay onClose={() => setRejecting(null)}>
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-dark-card space-y-4">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Reject Penerimaan</h3>
-            <p className="text-sm text-gray-500">Masukkan alasan reject untuk {rejecting.batchCode}.</p>
-            <Field label="Alasan Reject" required>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                rows={4}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                placeholder="contoh: data timbang tidak valid"
-                required
-              />
-            </Field>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setRejecting(null)} className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700">Batal</button>
-              <button type="button" onClick={() => void handleReject()} disabled={!rejectReason.trim() || processingId === rejecting.id} className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">
-                {processingId === rejecting.id ? "Menyimpan..." : "Reject"}
-              </button>
-            </div>
-          </div>
-        </ModalOverlay>
-      )}
     </div>
   );
 }

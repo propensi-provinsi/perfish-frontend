@@ -15,13 +15,16 @@ import {
 } from "@/types";
 import {
   type InboundStatus,
+  type InboundStatusFilter,
   type PurchaseOrderRow,
   getInboundReceipts,
+  isInputInProgressStatus,
+  inboundStatusBadgeClass,
+  inboundStatusDisplayLabel,
   getOpenPurchaseOrders,
   getWeighingSummary,
   submitQcInspection,
-  approveInbound,
-  rejectInbound,
+  submitForApproval,
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
 
@@ -103,18 +106,12 @@ function shortColdStorageLabel(full: string): string {
   return right || full.trim();
 }
 
-const STATUS_CONFIG: Record<InboundStatus, { label: string; cls: string }> = {
-  DRAFT: { label: "Draft", cls: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-  WEIGHING: { label: "Weighing", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
-  QC_CHECK: { label: "Siap paletisasi", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
-  PENDING: { label: "Pending", cls: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200" },
-  APPROVED: { label: "Approved", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
-  REJECTED: { label: "Rejected", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
-};
-
 function StatusBadge({ status }: { status: InboundStatus }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.DRAFT;
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${cfg.cls}`}>{cfg.label}</span>;
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${inboundStatusBadgeClass(status)}`}>
+      {inboundStatusDisplayLabel(status)}
+    </span>
+  );
 }
 
 function InboundIkanContent() {
@@ -123,11 +120,10 @@ function InboundIkanContent() {
   const [loadingReceivings, setLoadingReceivings] = useState(false);
   const [showAddPenerimaan, setShowAddPenerimaan] = useState(false);
   const [toast, setToast] = useState<InboundToast>(null);
-  const [rejectingRow, setRejectingRow] = useState<InboundFishRow | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<SupplierData[]>([]);
-  const [filterStatus, setFilterStatus] = useState<InboundStatus | "">("");
+  const [filterStatus, setFilterStatus] = useState<InboundStatusFilter>("");
+  const [allRows, setAllRows] = useState<InboundFishRow[]>([]);
   const [filterSupplierId, setFilterSupplierId] = useState("");
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
@@ -138,21 +134,31 @@ function InboundIkanContent() {
     setLoadingReceivings(true);
     try {
       const list = await getInboundReceipts({
-        status: filterStatus || undefined,
         supplierId: filterSupplierId || undefined,
         startDate: filterStartDate || undefined,
         endDate: filterEndDate || undefined,
       });
-      setInboundRows(
-        (list ?? []).map((r) => ({
-          ...r,
-          supplierId: r.supplierId ?? "",
-          lines: (r.lines ?? []).map((ln) => ({ ...ln })),
-        }))
-      );
+      const mapped = (list ?? []).map((r) => ({
+        ...r,
+        supplierId: r.supplierId ?? "",
+        lines: (r.lines ?? []).map((ln) => ({ ...ln })),
+      }));
+      setAllRows(mapped);
     } catch { /* interceptor */ }
     finally { setLoadingReceivings(false); }
-  }, [filterStatus, filterSupplierId, filterStartDate, filterEndDate]);
+  }, [filterSupplierId, filterStartDate, filterEndDate]);
+
+  useEffect(() => {
+    if (!filterStatus) {
+      setInboundRows(allRows);
+      return;
+    }
+    if (filterStatus === "INPUT_IN_PROGRESS") {
+      setInboundRows(allRows.filter((r) => isInputInProgressStatus(r.status)));
+      return;
+    }
+    setInboundRows(allRows.filter((r) => r.status === filterStatus));
+  }, [allRows, filterStatus]);
 
   useEffect(() => { queueMicrotask(() => { void fetchInboundFish(); }); }, [fetchInboundFish]);
   useEffect(() => {
@@ -166,12 +172,11 @@ function InboundIkanContent() {
     })();
   }, []);
 
-  const draftCount = inboundRows.filter((r) => r.status === "DRAFT").length;
-  const weighingCount = inboundRows.filter((r) => r.status === "WEIGHING").length;
-  const qcCount = inboundRows.filter((r) => r.status === "QC_CHECK").length;
-  const pendingCount = inboundRows.filter((r) => r.status === "PENDING").length;
-  const approvedCount = inboundRows.filter((r) => r.status === "APPROVED").length;
-  const rejectedCount = inboundRows.filter((r) => r.status === "REJECTED").length;
+  const draftCount = allRows.filter((r) => r.status === "DRAFT").length;
+  const inputInProgressCount = allRows.filter((r) => isInputInProgressStatus(r.status)).length;
+  const pendingCount = allRows.filter((r) => r.status === "PENDING").length;
+  const approvedCount = allRows.filter((r) => r.status === "APPROVED").length;
+  const rejectedCount = allRows.filter((r) => r.status === "REJECTED").length;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [qcRow, setQcRow] = useState<InboundFishRow | null>(null);
@@ -188,32 +193,18 @@ function InboundIkanContent() {
     return row.lines.length > 0 && row.lines.every((l) => l.qcGradeId != null);
   }
 
-  async function handleApprove(rowId: string) {
+  async function handleSubmitForApproval(rowId: string) {
+    if (!window.confirm("Selesaikan input dan kirim ke approval? Setelah ini sizing/palletisasi tidak bisa diubah kecuali admin membuka kembali dari sisi teknis.")) {
+      return;
+    }
     setActionLoadingId(rowId);
     try {
-      await approveInbound(rowId);
-      setToast({ type: "success", message: "Penerimaan berhasil di-approve." });
+      await submitForApproval(rowId);
+      setToast({ type: "success", message: "Penerimaan dikirim ke approval." });
       await fetchInboundFish();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal approve penerimaan." });
-    } finally {
-      setActionLoadingId(null);
-    }
-  }
-
-  async function handleReject() {
-    if (!rejectingRow || !rejectReason.trim()) return;
-    setActionLoadingId(rejectingRow.id);
-    try {
-      await rejectInbound(rejectingRow.id, rejectReason.trim());
-      setToast({ type: "success", message: "Penerimaan berhasil di-reject." });
-      setRejectingRow(null);
-      setRejectReason("");
-      await fetchInboundFish();
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal reject penerimaan." });
+      setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal mengirim ke approval." });
     } finally {
       setActionLoadingId(null);
     }
@@ -263,12 +254,11 @@ function InboundIkanContent() {
           </button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as InboundStatus | "")} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as InboundStatusFilter)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
             <option value="">Semua Status</option>
             <option value="DRAFT">Draft</option>
-            <option value="WEIGHING">Weighing</option>
-            <option value="QC_CHECK">Siap paletisasi</option>
-            <option value="PENDING">Pending</option>
+            <option value="INPUT_IN_PROGRESS">Input In Progress</option>
+            <option value="PENDING">Waiting for Approval</option>
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
           </select>
@@ -282,11 +272,10 @@ function InboundIkanContent() {
       </section>
 
       <section>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <SummaryCard label="Draft" value={loadingReceivings ? "…" : String(draftCount)} />
-          <SummaryCard label="Weighing" value={loadingReceivings ? "…" : String(weighingCount)} />
-          <SummaryCard label="Siap paletisasi" value={loadingReceivings ? "…" : String(qcCount)} />
-          <SummaryCard label="Pending" value={loadingReceivings ? "…" : String(pendingCount)} />
+          <SummaryCard label="Input In Progress" value={loadingReceivings ? "…" : String(inputInProgressCount)} />
+          <SummaryCard label="Waiting for Approval" value={loadingReceivings ? "…" : String(pendingCount)} />
           <SummaryCard label="Approved" value={loadingReceivings ? "…" : String(approvedCount)} />
           <SummaryCard label="Rejected" value={loadingReceivings ? "…" : String(rejectedCount)} />
         </div>
@@ -305,7 +294,7 @@ function InboundIkanContent() {
                 <th className="px-4 py-3 font-medium">Kode Penerimaan</th>
                 <th className="px-4 py-3 font-medium">Kode PO</th>
                 <th className="px-4 py-3 font-medium">Supplier</th>
-                <th className="px-4 py-3 font-medium">Gudang</th>
+                <th className="px-4 py-3 font-medium">Lokasi Penerimaan</th>
                 <th className="px-4 py-3 font-medium">Tanggal</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium w-56">Aksi</th>
@@ -334,42 +323,55 @@ function InboundIkanContent() {
                       <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
                       <td className="px-4 py-3">
                         <div className="inline-flex gap-2 flex-wrap">
-                          {canWeighPallet && (row.status === "DRAFT" || row.status === "WEIGHING") && (
+                          {canWeighPallet && row.status === "DRAFT" && (
                             <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                              {row.status === "DRAFT" ? "Mulai sizing & grading" : "Lanjut sizing & grading"}
+                              Mulai Sizing &amp; Grading
+                            </Link>
+                          )}
+                          {canWeighPallet && row.status === "WEIGHING" && (
+                            <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
+                              Lanjutkan Sizing &amp; Grading
                             </Link>
                           )}
                           {canQc && row.status === "QC_CHECK" && !done && (
                             <button type="button" onClick={() => setQcRow(row)} className={actionBtn("warning", "xs")}>
-                              QC per baris (legacy)
+                              QC Per Baris (Legacy)
                             </button>
                           )}
                           {canWeighPallet && row.status === "QC_CHECK" && done && (
-                            <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
-                              Palletisasi
-                            </Link>
-                          )}
-                          {canApproveReject && row.status === "PENDING" && (
                             <>
+                              <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
+                                Lanjutkan Sizing &amp; Grading
+                              </Link>
+                              <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
+                                Lanjut Paletisasi
+                              </Link>
+                            </>
+                          )}
+                          {canWeighPallet && row.status === "IN_PROGRESS" && (
+                            <>
+                              <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
+                                Lanjutkan Sizing &amp; Grading
+                              </Link>
+                              <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
+                                Lanjut Paletisasi
+                              </Link>
                               <button
                                 type="button"
-                                onClick={() => void handleApprove(row.id)}
+                                onClick={() => void handleSubmitForApproval(row.id)}
                                 disabled={actionLoadingId === row.id}
-                                className={actionBtn("success", "xs")}
+                                className={actionBtn("warning", "xs")}
                               >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setRejectingRow(row)}
-                                disabled={actionLoadingId === row.id}
-                                className={actionBtn("danger", "xs")}
-                              >
-                                Reject
+                                Lanjut Ke Approval
                               </button>
                             </>
                           )}
-                          {(row.status === "APPROVED" || row.status === "REJECTED" || row.status === "PENDING") && (
+                          {canApproveReject && row.status === "PENDING" && (
+                            <Link href={`/inbound-ikan/summary/${row.id}`} className={actionBtn("primary", "xs")}>
+                              Approval
+                            </Link>
+                          )}
+                          {(row.status === "APPROVED" || row.status === "REJECTED") && (
                             <Link href={`/inbound-ikan/summary/${row.id}`} className={actionBtn("ghost", "xs")}>
                               Lihat Detail
                             </Link>
@@ -450,43 +452,6 @@ function InboundIkanContent() {
         />
       )}
 
-      {rejectingRow && (
-        <ModalOverlay onClose={() => setRejectingRow(null)}>
-          <div className="w-full max-w-xl rounded-2xl border border-red-100 bg-white p-6 shadow-2xl dark:border-red-900/50 dark:bg-dark-card space-y-5">
-            <div className="border-b border-red-100 pb-3 dark:border-red-900/40">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">Reject Penerimaan</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Kode penerimaan <span className="font-mono font-semibold">{rejectingRow.batchCode}</span> akan ditandai rejected dan batch menjadi blocked.
-              </p>
-            </div>
-            <Field label="Alasan Reject" required>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                rows={4}
-                maxLength={255}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                placeholder="contoh: dokumen tidak valid / hasil tidak sesuai"
-                required
-              />
-              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                {rejectReason.length}/255 karakter
-              </p>
-            </Field>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setRejectingRow(null)} className={actionBtn("neutral")}>Batal</button>
-              <button
-                type="button"
-                onClick={() => void handleReject()}
-                disabled={!rejectReason.trim() || actionLoadingId === rejectingRow.id}
-                className={actionBtn("danger")}
-              >
-                {actionLoadingId === rejectingRow.id ? "Menyimpan..." : "Reject"}
-              </button>
-            </div>
-          </div>
-        </ModalOverlay>
-      )}
     </div>
   );
 }
@@ -581,7 +546,11 @@ function AddPenerimaanModal({
         <Field label="Purchase Order" required>
           <select value={poId === "" ? "" : poId} onChange={(e) => setPoId(e.target.value === "" ? "" : Number(e.target.value))} disabled={loadingMasters} className={inputCls}>
             <option value="">{loadingMasters ? "Memuat…" : "Pilih Purchase Order"}</option>
-            {openPOs.map((po) => <option key={po.poId} value={po.poId}>{po.poCode} — {po.supplierName} ({po.expectedArrivalDate})</option>)}
+            {openPOs.map((po) => (
+              <option key={po.poId} value={po.poId}>
+                {po.poCode} — {po.supplierName} ({po.expectedArrivalDate}) [{po.status}]
+              </option>
+            ))}
           </select>
         </Field>
 
@@ -618,9 +587,9 @@ function AddPenerimaanModal({
           </div>
         )}
 
-        <Field label="Lokasi Gudang" required>
+        <Field label="Lokasi Penerimaan" required>
           <select value={coldStorageId === "" ? "" : coldStorageId} onChange={(e) => setColdStorageId(e.target.value === "" ? "" : Number(e.target.value))} disabled={loadingMasters || coldStorageOptions.length === 0} className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400`}>
-            <option value="">{loadingMasters ? "Memuat…" : "Pilih lokasi gudang"}</option>
+            <option value="">{loadingMasters ? "Memuat…" : "Pilih lokasi penerimaan"}</option>
             {coldStorageOptions.map((cs) => <option key={cs.coldStorageId} value={cs.coldStorageId}>{cs.csCode} — {cs.csName}</option>)}
           </select>
         </Field>
