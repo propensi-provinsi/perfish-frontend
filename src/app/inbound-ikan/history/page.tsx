@@ -5,23 +5,22 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import apiClient from "@/lib/api";
 import type { ApiResponse, SupplierData } from "@/types";
-import { type InboundReceiptRow, type InboundStatus, getInboundReceipts } from "@/lib/inbound-api";
+import {
+  type InboundReceiptRow,
+  type InboundStatusFilter,
+  getInboundReceipts,
+  isInputInProgressStatus,
+  inboundStatusDisplayLabel,
+} from "@/lib/inbound-api";
 
-const STATUS_OPTIONS: Array<{ value: InboundStatus | ""; label: string }> = [
+const STATUS_OPTIONS: Array<{ value: InboundStatusFilter; label: string }> = [
   { value: "", label: "Semua Status" },
-  { value: "PENDING", label: "Pending" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "INPUT_IN_PROGRESS", label: "Input In Progress" },
+  { value: "PENDING", label: "Waiting for Approval" },
   { value: "APPROVED", label: "Approved" },
   { value: "REJECTED", label: "Rejected" },
 ];
-
-const STATUS_LABEL: Record<InboundStatus, string> = {
-  DRAFT: "Draft",
-  WEIGHING: "Weighing",
-  QC_CHECK: "QC Check",
-  PENDING: "Pending",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
-};
 
 export default function InboundHistoryPage() {
   return (
@@ -37,7 +36,7 @@ function InboundHistoryContent() {
   const [rows, setRows] = useState<InboundReceiptRow[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierData[]>([]);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<InboundStatus | "">("");
+  const [status, setStatus] = useState<InboundStatusFilter>("");
   const [supplierId, setSupplierId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -45,8 +44,17 @@ function InboundHistoryContent() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getInboundReceipts({ status, supplierId: supplierId || undefined, startDate: startDate || undefined, endDate: endDate || undefined });
-      setRows(data);
+      const data = await getInboundReceipts({
+        supplierId: supplierId || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      });
+      const filtered = !status
+        ? data
+        : status === "INPUT_IN_PROGRESS"
+          ? data.filter((r) => isInputInProgressStatus(r.status))
+          : data.filter((r) => r.status === status);
+      setRows(filtered);
     } finally {
       setLoading(false);
     }
@@ -74,7 +82,7 @@ function InboundHistoryContent() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <select value={status} onChange={(e) => setStatus(e.target.value as InboundStatus | "")} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
+          <select value={status} onChange={(e) => setStatus(e.target.value as InboundStatusFilter)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
             {STATUS_OPTIONS.map((opt) => <option key={opt.value || "all"} value={opt.value}>{opt.label}</option>)}
           </select>
           <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
@@ -112,7 +120,7 @@ function InboundHistoryContent() {
                   <td className="px-4 py-2">{r.poCode ?? "—"}</td>
                   <td className="px-4 py-2">{r.supplierName}</td>
                   <td className="px-4 py-2">{r.tanggalPenerimaan}</td>
-                  <td className="px-4 py-2">{STATUS_LABEL[r.status] ?? r.status}</td>
+                  <td className="px-4 py-2">{inboundStatusDisplayLabel(r.status)}</td>
                 </tr>
               ))}
             </tbody>

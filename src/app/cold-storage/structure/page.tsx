@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { listColdStorageStructureSummaries } from "@/lib/coldstorage-api";
+import { alertErrorClass, tableTdClass, tableTdMutedClass } from "@/lib/coldstorage-ui";
 import type { ColdStorageStructureSummary } from "@/types/coldstorage";
 
 function fmtKg(v: number | string | null | undefined) {
@@ -56,7 +57,7 @@ function ColdStorageStructurePageInner() {
           <div>
             <h1 className="text-2xl font-bold text-navy dark:text-white">Struktur Cold Storage</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Ringkasan block, rack, dan posisi per cold storage. Buka detail untuk hierarki lengkap.
+              Ringkasan detail Cold Storage.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -80,7 +81,7 @@ function ColdStorageStructurePageInner() {
                 })();
               }}
             >
-              Segarkan
+              Refresh
             </Button>
           </div>
         </div>
@@ -88,16 +89,16 @@ function ColdStorageStructurePageInner() {
       <ColdStorageModuleNav />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className={alertErrorClass}>{error}</div>
       )}
 
       <section className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
         {loading ? (
-          <p className="p-6 text-sm text-gray-500">Memuat...</p>
+          <p className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat...</p>
         ) : (
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700">
+              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Kode</th>
                 <th className="px-4 py-3">Nama</th>
                 <th className="px-4 py-3">Cabang</th>
@@ -114,21 +115,21 @@ function ColdStorageStructurePageInner() {
               {rows.map((r) => (
                 <tr key={r.coldStorageId} className="border-b border-gray-100 dark:border-gray-800">
                   <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{r.csCode}</td>
-                  <td className="px-4 py-2">{r.csName}</td>
-                  <td className="px-4 py-2 text-gray-600 dark:text-gray-300">
+                  <td className={`px-4 py-2 ${tableTdClass}`}>{r.csName}</td>
+                  <td className={`px-4 py-2 ${tableTdMutedClass}`}>
                     {r.branchCode ?? "—"}
                     {r.branchName ? ` · ${r.branchName}` : ""}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">{r.blockCount}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{r.rackCount}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{r.positionCount}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                  <td className={`px-4 py-2 text-right tabular-nums ${tableTdClass}`}>{r.blockCount}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${tableTdClass}`}>{r.rackCount}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${tableTdClass}`}>{r.positionCount}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${tableTdMutedClass}`}>
                     {fmtTon(r.totalStockTon ?? null)}
-                    <div className="text-[11px] font-normal text-gray-500">{fmtKg(r.totalStockKg)}</div>
+                    <div className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{fmtKg(r.totalStockKg)}</div>
                   </td>
-                  <td className="px-4 py-2 text-right text-xs text-gray-700 dark:text-gray-300">
+                  <td className={`px-4 py-2 text-right text-xs ${tableTdMutedClass}`}>
                     <span className="tabular-nums">{fmtPct(r.positionOccupancyRatePct ?? null)}</span>
-                    <div className="text-[11px] text-gray-500">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">
                       {r.occupiedPositionCount != null && r.availablePositionCount != null
                         ? `${r.occupiedPositionCount} terisi · ${r.availablePositionCount} kosong`
                         : "—"}
@@ -137,7 +138,7 @@ function ColdStorageStructurePageInner() {
                   <td className="px-4 py-2">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(r.positionCountByStatus ?? {}).length === 0 ? (
-                        <span className="text-xs text-gray-500">—</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">—</span>
                       ) : (
                         Object.entries(r.positionCountByStatus ?? {}).map(([k, v]) => (
                           <span
@@ -145,7 +146,7 @@ function ColdStorageStructurePageInner() {
                             className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-1.5 py-0.5 dark:bg-gray-800"
                           >
                             <PositionStatusBadge status={k} />
-                            <span className="text-xs tabular-nums text-gray-600 dark:text-gray-300">{v}</span>
+                            <span className="text-xs tabular-nums text-gray-600 dark:text-gray-200">{v}</span>
                           </span>
                         ))
                       )}
@@ -159,12 +160,6 @@ function ColdStorageStructurePageInner() {
                       >
                         Lihat detail
                       </Link>
-                      <Link
-                        href={`/cold-storage/stock-opname?coldStorageId=${r.coldStorageId}`}
-                        className="text-xs font-medium text-cyan hover:underline"
-                      >
-                        Stock opname
-                      </Link>
                     </div>
                   </td>
                 </tr>
@@ -173,7 +168,7 @@ function ColdStorageStructurePageInner() {
           </table>
         )}
         {!loading && rows.length === 0 && (
-          <p className="p-6 text-sm text-gray-500">Belum ada data cold storage.</p>
+          <p className="p-6 text-sm text-gray-500 dark:text-gray-400">Belum ada data cold storage.</p>
         )}
       </section>
     </div>

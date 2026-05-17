@@ -3,52 +3,27 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Button from "@/components/ui/Button";
+import BatchQrCode from "@/components/cold-storage/BatchQrCode";
+import { batchDetailHref } from "@/lib/batch-detail-url";
+import { actionBtn } from "@/lib/ui-action";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks } from "@/lib/coldstorage-api";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
-import type {
-  ColdStorageData,
-  ColdStorageStockRow,
-  StockCategoryStatus,
-} from "@/types";
+import { stockCategoryStatusBadgeClass } from "@/lib/coldstorage-status";
+import { alertErrorClass, formatDateDdMmYyyy, inputClass } from "@/lib/coldstorage-ui";
+import type { ColdStorageData, ColdStorageStockRow, StockCategoryStatus } from "@/types";
 
-const STATUS_OPTIONS: StockCategoryStatus[] = [
-  "FRESH",
-  "WARNING",
-  "EXPIRED",
-  "QUARANTINE",
-];
+const STATUS_OPTIONS: StockCategoryStatus[] = ["FRESH", "WARNING", "EXPIRED", "QUARANTINE"];
 
-function statusBadgeClass(status: StockCategoryStatus) {
-  switch (status) {
-    case "EXPIRED":
-      return "bg-red-100 text-red-700";
-    case "WARNING":
-      return "bg-yellow-100 text-yellow-800";
-    case "FRESH":
-      return "bg-green-100 text-green-700";
-    case "QUARANTINE":
-      return "bg-slate-200 text-slate-700";
-    case "DISPOSED":
-      return "bg-gray-200 text-gray-600";
-    default:
-      return "bg-slate-100 text-slate-700";
-  }
-}
-
-/**
- * Dashboard monitoring stok cold storage (E05-PBI-02).
- * Menampilkan tabel stok dengan filter gudang & kategori status.
- */
 export default function ColdStorageDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
   const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
-
   const [warehouseId, setWarehouseId] = useState<number | "">("");
   const [kategoriStatus, setKategoriStatus] = useState<StockCategoryStatus | "">("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   async function loadData() {
     setLoading(true);
@@ -63,9 +38,9 @@ export default function ColdStorageDashboard() {
       ]);
       setColdStorages(coldStorageData.filter((cs) => cs.isActive));
       setRows(stocksData);
+      setPage(1);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Gagal memuat dashboard Cold Storage";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Gagal memuat dashboard Cold Storage");
     } finally {
       setLoading(false);
     }
@@ -84,18 +59,24 @@ export default function ColdStorageDashboard() {
     return totals;
   }, [rows]);
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const visibleRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [page, pageSize, rows]);
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-navy dark:text-white">Cold Storage Monitor</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Hanya batch yang sudah punya{" "}
-            <strong>lokasi rack</strong> di cold storage. Batch yang baru di-approve dan belum ditentukan lokasinya ada di{" "}
-            <Link href="/storage/loading-bay" className="font-medium text-cyan hover:underline">
-              Loading Bay
-            </Link>
-            . Umur simpan dihitung otomatis setiap hari.
+            Lokasi penyimpanan untuk batch (kandang macan) yang telah diterima
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -104,11 +85,7 @@ export default function ColdStorageDashboard() {
       </header>
       <ColdStorageModuleNav />
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <div className={alertErrorClass}>{error}</div>}
 
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <div className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Filter</div>
@@ -116,7 +93,7 @@ export default function ColdStorageDashboard() {
           <select
             value={warehouseId}
             onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+            className={inputClass}
           >
             <option value="">Semua Gudang</option>
             {coldStorages.map((cs) => (
@@ -128,7 +105,7 @@ export default function ColdStorageDashboard() {
           <select
             value={kategoriStatus}
             onChange={(e) => setKategoriStatus((e.target.value as StockCategoryStatus) || "")}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+            className={inputClass}
           >
             <option value="">Semua Status</option>
             {STATUS_OPTIONS.map((s) => (
@@ -153,78 +130,78 @@ export default function ColdStorageDashboard() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700">
+              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-3 py-2">Batch</th>
+                <th className="px-3 py-2">Kode Penerimaan</th>
                 <th className="px-3 py-2">Species</th>
                 <th className="px-3 py-2">Gudang / Area</th>
+                <th className="px-3 py-2">Tgl Penerimaan</th>
                 <th className="px-3 py-2">Tgl Masuk</th>
                 <th className="px-3 py-2">Umur Simpan</th>
                 <th className="px-3 py-2">Stok</th>
-                <th className="px-3 py-2">Kandang macan</th>
-                <th className="px-3 py-2 text-right">Utilisasi</th>
+                <th className="px-3 py-2 text-center">QR</th>
                 <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-5 text-gray-500">
+                  <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
                     Memuat data...
                   </td>
                 </tr>
-              ) : rows.length ? (
-                rows.map((row) => (
+              ) : visibleRows.length ? (
+                visibleRows.map((row) => (
                   <tr key={`${row.batchId}-${row.warehouseId}`} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">{row.batchNumber}</td>
-                    <td className="px-3 py-2">{row.speciesName ?? "-"}</td>
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.inboundReceiptCode ?? "—"}</td>
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.speciesName ?? "—"}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-col">
-                        <span>{row.warehouseCode} — {row.warehouseName}</span>
-                        <span className="text-xs text-gray-500">Area: {row.storageArea}</span>
+                        <span className="text-gray-900 dark:text-gray-100">
+                          {row.warehouseCode} — {row.warehouseName}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Area: {row.storageArea}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2">{row.tanggalMasuk}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
+                      {formatDateDdMmYyyy(row.tanggalPenerimaan ?? null)}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
+                      {formatDateDdMmYyyy(row.tanggalMasuk)}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
                       {row.umurSimpanDays} hari
                       {row.umurSimpanBulan > 0 && (
-                        <span className="ml-1 text-xs text-gray-500">({row.umurSimpanBulan} bln)</span>
+                        <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">
+                          ({row.umurSimpanBulan} bln)
+                        </span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
                       {row.jumlahStok ?? 0} {row.unit ?? ""}
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col gap-0.5">
-                        <span>
-                          {row.kandangMacanCode ?? "—"}
-                          {row.kandangUnderCapacity ? (
-                            <span className="ml-1.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                              Under kapasitas
-                            </span>
-                          ) : null}
-                        </span>
-                        {row.kandangNominalCapacityKg != null && row.kandangNominalCapacityKg !== "" ? (
-                          <span className="text-[11px] text-gray-500">
-                            Nominal {row.kandangNominalCapacityKg} kg
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
-                      {row.kandangUtilizationPct != null && row.kandangUtilizationPct !== ""
-                        ? `${Number(String(row.kandangUtilizationPct).replace(",", ".")).toFixed(1)}%`
-                        : "—"}
+                    <td className="px-3 py-2 text-center">
+                      <BatchQrCode batchNumber={row.batchNumber} size={48} />
                     </td>
                     <td className="px-3 py-2">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(row.kategoriStatus)}`}>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(row.kategoriStatus)}`}
+                      >
                         {row.kategoriStatus}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Link href={batchDetailHref(row.batchNumber)} className={actionBtn("primary", "xs")}>
+                        View Detail
+                      </Link>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-3 py-5 text-gray-500">
+                  <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
                     Belum ada stok batch aktif di Cold Storage.
                   </td>
                 </tr>
@@ -232,6 +209,45 @@ export default function ColdStorageDashboard() {
             </tbody>
           </table>
         </div>
+
+        {!loading && rows.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Menampilkan {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, rows.length)} dari {rows.length}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
+              >
+                {[10, 20, 50].map((n) => (
+                  <option key={n} value={n}>
+                    {n} / halaman
+                  </option>
+                ))}
+              </select>
+              <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                Sebelumnya
+              </Button>
+              <span className="text-xs text-gray-600 dark:text-gray-200">
+                {page} / {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Berikutnya
+              </Button>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -248,16 +264,16 @@ function SummaryCard({
 }) {
   const toneClass =
     tone === "green"
-      ? "bg-green-100 text-green-700"
+      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
       : tone === "yellow"
-        ? "bg-yellow-100 text-yellow-800"
+        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200"
         : tone === "red"
-          ? "bg-red-100 text-red-700"
-          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+          ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-      <p className="text-xs uppercase tracking-wide text-gray-500">{title}</p>
+      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</p>
       <div className="mt-2 flex items-end justify-between">
         <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${toneClass}`}>{title}</span>
