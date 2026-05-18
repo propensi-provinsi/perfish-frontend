@@ -55,6 +55,9 @@ export const quotationApi = {
 
   convert: (id: number) =>
     apiClient.post<ApiResponse<SalesOrderData>>(`${BASE}/${id}/convert`),
+
+  downloadPdf: (id: number) =>
+    apiClient.get<Blob>(`${BASE}/${id}/download`, { responseType: 'blob' }),
 };
 
 export const salesRekapApi = {
