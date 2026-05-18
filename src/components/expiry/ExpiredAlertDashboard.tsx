@@ -46,7 +46,8 @@ export default function ExpiredAlertDashboard() {
   const [speciesId, setSpeciesId] = useState<number | "">("");
   const [coldStorageId, setColdStorageId] = useState<number | "">("");
   const [keyword, setKeyword] = useState("");
-  const isSuperadmin = user?.role === "SUPERADMIN";
+  const canOverrideExpiry =
+    user?.role === "SUPERADMIN" || user?.role === "QC_SPECIALIST" || user?.role === "KEPALA_CABANG";
 
   function clearFilters() {
     setStatus("");
@@ -100,6 +101,7 @@ export default function ExpiredAlertDashboard() {
   }, [filters.status, filters.speciesId, filters.coldStorageId, filters.keyword]);
 
   function openOverrideModal(row: BatchExpiryStatusRow) {
+    if (!canOverrideExpiry) return;
     setSelectedRow(row);
     setOverrideDate(row.manualExpiredDate ?? row.expiredDate);
     setOverrideModalOpen(true);
@@ -112,7 +114,7 @@ export default function ExpiredAlertDashboard() {
   }
 
   async function handleSaveOverride() {
-    if (!selectedRow) return;
+    if (!selectedRow || !canOverrideExpiry) return;
 
     setSavingOverride(true);
     setError(null);
@@ -131,7 +133,7 @@ export default function ExpiredAlertDashboard() {
   }
 
   async function handleResetOverride() {
-    if (!selectedRow) return;
+    if (!selectedRow || !canOverrideExpiry) return;
 
     setSavingOverride(true);
     setError(null);
@@ -259,13 +261,13 @@ export default function ExpiredAlertDashboard() {
                   <th className="px-3 py-2">Expired</th>
                   <th className="px-3 py-2">Sisa Hari</th>
                   <th className="px-3 py-2">Status</th>
-                  {isSuperadmin && <th className="px-3 py-2">Aksi</th>}
+                  {canOverrideExpiry && <th className="px-3 py-2">Aksi</th>}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="px-3 py-5 text-gray-500" colSpan={isSuperadmin ? 8 : 7}>
+                    <td className="px-3 py-5 text-gray-500" colSpan={canOverrideExpiry ? 8 : 7}>
                       Memuat data...
                     </td>
                   </tr>
@@ -290,7 +292,7 @@ export default function ExpiredAlertDashboard() {
                           {row.expiryStatus}
                         </span>
                       </td>
-                      {isSuperadmin && (
+                      {canOverrideExpiry && (
                         <td className="px-3 py-2">
                           <Button
                             size="sm"
@@ -306,7 +308,7 @@ export default function ExpiredAlertDashboard() {
                   ))
                 ) : (
                   <tr>
-                    <td className="px-3 py-5 text-gray-500" colSpan={isSuperadmin ? 8 : 7}>
+                    <td className="px-3 py-5 text-gray-500" colSpan={canOverrideExpiry ? 8 : 7}>
                       Belum ada data batch expiry.
                     </td>
                   </tr>
@@ -317,7 +319,7 @@ export default function ExpiredAlertDashboard() {
         </section>
       </div>
 
-      {overrideModalOpen && selectedRow && (
+      {overrideModalOpen && selectedRow && canOverrideExpiry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-dark-card">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Edit Expiry Date Batch</h2>
