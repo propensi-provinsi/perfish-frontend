@@ -11,9 +11,11 @@ import {
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineMagnifyingGlass,
+  HiOutlineArrowDownTray,
 } from "react-icons/hi2";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
+import apiClient from "@/lib/api";
 import { quotationApi } from "@/lib/quotation-api";
 import type {
   QuotationData,
@@ -461,9 +463,45 @@ function ActionBtn({
    ================================================================ */
 
 function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onClose: () => void }) {
+  const [downloading, setDownloading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setErrorMsg(null);
+    try {
+      const fileResp = await quotationApi.downloadPdf(q.id);
+      
+      const blobUrl = window.URL.createObjectURL(new Blob([fileResp.data]));
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      
+      const contentDisposition = fileResp.headers['content-disposition'];
+      let fileName = `quotation_${q.quotationNumber}.pdf`;
+      if (contentDisposition && contentDisposition.includes('filename=')) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+        if (matches != null && matches[1]) {
+          fileName = matches[1].replace(/['"]/g, '');
+        }
+      }
+      
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e.response?.data?.message || 'Gagal mengunduh PDF');
+      setTimeout(() => setErrorMsg(null), 3000);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <ModalShell title={`Detail — ${q.quotationNumber}`} onClose={onClose} wide>
-      <div className="space-y-4">
+      <div className="space-y-4 relative">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {([
             ["Customer",          q.customerName],
@@ -493,22 +531,27 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
         {/* Items */}
         <div>
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Item</p>
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
             <table className="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-dark-section">
                 <tr>
-                  {["Batch ID", "Volume (kg)", "Harga/kg", "Total"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{h}</th>
+                  {["Produk", "Spesies", "Bentuk", "Grade", "Ukuran", "Kemasan", "Volume (kg)", "Harga/kg", "Total"].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {q.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-3 py-2 font-mono text-xs">{item.batchId}</td>
-                    <td className="px-3 py-2 tabular-nums">{item.volumeKg.toLocaleString("id-ID")}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatRupiah(item.pricePerKg)}</td>
-                    <td className="px-3 py-2 tabular-nums font-medium">{formatRupiah(item.totalPrice)}</td>
+                  <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{item.productName || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{item.fishSpeciesName || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{item.fishForm || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{item.fishGrade || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{item.sizeSpec || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-300">{item.packaging || "—"}</td>
+                    <td className="px-3 py-2 tabular-nums text-gray-800 dark:text-gray-200">{item.volumeKg.toLocaleString("id-ID")}</td>
+                    <td className="px-3 py-2 tabular-nums text-gray-800 dark:text-gray-200">{formatRupiah(item.pricePerKg)}</td>
+                    <td className="px-3 py-2 tabular-nums font-medium text-gray-800 dark:text-gray-200">{formatRupiah(item.totalPrice)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -530,6 +573,29 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
           <div className="flex justify-between font-bold text-gray-900 dark:text-gray-100 pt-1 border-t border-gray-200 dark:border-gray-700">
             <span>Total</span><span>{formatRupiah(q.total)}</span>
           </div>
+        </div>
+
+        {/* Action / Download Section */}
+        <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700 mt-4 relative">
+          {errorMsg && (
+            <div className="absolute left-0 bottom-4 rounded-md bg-red-light px-3 py-1.5 text-xs text-red shadow-sm">
+              {errorMsg}
+            </div>
+          )}
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#0066ff] px-4 py-2 text-sm font-semibold text-white
+              hover:bg-[#0052cc] hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed
+              transition-all shadow-md shadow-blue-500/30"
+          >
+            {downloading ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <HiOutlineArrowDownTray className="h-4 w-4" />
+            )}
+            {downloading ? "Memproses…" : "Unduh PDF"}
+          </button>
         </div>
       </div>
     </ModalShell>
@@ -812,7 +878,7 @@ function ModalShell({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className={`relative w-full rounded-xl bg-white dark:bg-dark-card shadow-2xl max-h-[90vh] flex flex-col ${wide ? "max-w-2xl" : "max-w-md"}`}>
+      <div className={`relative w-full rounded-xl bg-white dark:bg-dark-card shadow-2xl max-h-[90vh] flex flex-col ${wide ? "max-w-6xl" : "max-w-md"}`}>
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4 shrink-0">
           <h2 className="text-base font-semibold text-navy dark:text-white">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none">✕</button>
