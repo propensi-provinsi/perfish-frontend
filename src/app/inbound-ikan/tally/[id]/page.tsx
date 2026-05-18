@@ -18,6 +18,8 @@ import {
   getWeighingSummary,
   submitWeighingLog,
   finishWeighing,
+  updateWeighingLog,
+  deleteWeighingLog,
   getAllPurchaseOrders,
   addLineToReceipt,
 } from "@/lib/inbound-api";
@@ -91,6 +93,7 @@ function InboundTallyContent() {
   const [summary, setSummary] = useState<WeighingSummaryRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [editingLog, setEditingLog] = useState<WeighingLogRow | null>(null);
   const [msg, setMsg] = useState<{ type: "success" | "error" | "warning"; text: string } | null>(null);
 
   const [poData, setPoData] = useState<PurchaseOrderRow | null>(null);
@@ -180,8 +183,16 @@ function InboundTallyContent() {
     return m;
   }, [poData]);
 
-  const canWeigh = receipt?.status === "DRAFT" || receipt?.status === "WEIGHING";
+  const canWeigh =
+    receipt?.status === "DRAFT" ||
+    receipt?.status === "WEIGHING" ||
+    receipt?.status === "QC_CHECK" ||
+    receipt?.status === "IN_PROGRESS";
   const canFinish = receipt?.status === "WEIGHING" && summary.some((s) => s.basketCount > 0);
+  const canEditLogs =
+    receipt?.status === "WEIGHING" ||
+    receipt?.status === "QC_CHECK" ||
+    receipt?.status === "IN_PROGRESS";
 
   const nextBasketNo = useMemo(() => {
     const maxNo = logs.reduce((m, l) => Math.max(m, l.basketNo), 0);
@@ -212,23 +223,30 @@ function InboundTallyContent() {
     if (!selectedLineId) return;
     setSaving(true);
     setMsg(null);
+    const payload = {
+      lineId: selectedLineId,
+      grossWeight: Number(grossWeight),
+      tareWeight: Number(tareWeight),
+      gradeId: Number(gradeId),
+      suhuPenerimaan: Number(suhu),
+      itemSize: basketSize.trim(),
+      isRejectBasket,
+      rejectReasonId: isRejectBasket && rejectReasonId !== "" ? Number(rejectReasonId) : null,
+    };
     try {
-      await submitWeighingLog(receiptId, {
-        lineId: selectedLineId,
-        grossWeight: Number(grossWeight),
-        tareWeight: Number(tareWeight),
-        gradeId: Number(gradeId),
-        suhuPenerimaan: Number(suhu),
-        itemSize: basketSize.trim(),
-        isRejectBasket,
-        rejectReasonId: isRejectBasket && rejectReasonId !== "" ? Number(rejectReasonId) : null,
-      });
+      if (editingLog) {
+        await updateWeighingLog(receiptId, editingLog.id, payload);
+        setEditingLog(null);
+        setMsg({ type: "success", text: `Basket #${editingLog.basketNo} diperbarui.` });
+      } else {
+        await submitWeighingLog(receiptId, payload);
+        setMsg({ type: "success", text: `Basket #${nextBasketNo} tersimpan (SKU per grade).` });
+      }
       setGrossWeight("");
       setTareWeight("");
       setSuhu("");
       setIsRejectBasket(false);
       setRejectReasonId("");
-      setMsg({ type: "success", text: `Basket #${nextBasketNo} tersimpan (SKU per grade).` });
       await Promise.all([loadLogs(), loadSummary(), loadReceipt()]);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -238,6 +256,31 @@ function InboundTallyContent() {
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  function startEditLog(row: WeighingLogRow) {
+    setEditingLog(row);
+    setSelectedLineId(row.lineId);
+    setGrossWeight(String(row.grossWeight));
+    setTareWeight(String(row.tareWeight));
+    setGradeId(row.gradeId ?? "");
+    setSuhu(row.suhuPenerimaan != null ? String(row.suhuPenerimaan) : "");
+    setBasketSize(row.itemSize ?? "");
+    setIsRejectBasket(Boolean(row.isRejectBasket));
+    setRejectReasonId(row.rejectReasonId ?? "");
+  }
+
+  async function handleDeleteLog(logId: string) {
+    if (!window.confirm("Hapus data basket ini? Palletisasi karantina (jika ada) akan dibatalkan.")) return;
+    setMsg(null);
+    try {
+      await deleteWeighingLog(receiptId, logId);
+      setMsg({ type: "success", text: "Basket dihapus." });
+      await Promise.all([loadLogs(), loadSummary(), loadReceipt()]);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal menghapus basket." });
     }
   }
 
@@ -311,12 +354,17 @@ function InboundTallyContent() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Sizing &amp; Grading</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Setiap basket: gross/tare, size, grade, suhu. Centang <em>basket reject</em> bila mutu ditolak (tetap dapat SKU dan bisa masuk kandang macan). SKU mengikuti grade.
+          Proses pencatatan tally weighing dan cek mutu penerimaan ikan
         </p>
         <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-          {receipt ? `${receipt.batchCode} — ${receipt.supplierName} (${receipt.status})` : "Memuat…"}
+          {receipt ? `${receipt.batchCode} (${receipt.supplierName})` : "Memuat…"}
         </p>
         {receipt?.poCode && <p className="text-xs text-gray-400 dark:text-gray-500">PO: {receipt.poCode}</p>}
+        <div className="mt-3">
+          <button type="button" onClick={() => router.push("/inbound-ikan")} className={actionBtn("neutral", "sm")}>
+            Kembali
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -340,6 +388,12 @@ function InboundTallyContent() {
 
       {canWeigh && (
         <form onSubmit={handleSubmitLog} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card space-y-4">
+          {editingLog && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-2 py-1">
+              Mengedit basket #{editingLog.basketNo}.{" "}
+              <button type="button" className="underline" onClick={() => setEditingLog(null)}>Batal</button>
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2 flex gap-2 items-end">
               <div className="flex-1">
@@ -396,7 +450,7 @@ function InboundTallyContent() {
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade (SKU per kombinasi spesies–bentuk–grade)</label>
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade</label>
               <select
                 value={gradeId === "" ? "" : gradeId}
                 onChange={(e) => setGradeId(e.target.value === "" ? "" : Number(e.target.value))}
@@ -425,7 +479,7 @@ function InboundTallyContent() {
                 className="h-4 w-4 rounded border-gray-300"
               />
               <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
-                Basket reject (mutu) — tetap dapat SKU; bisa dialokasikan ke kandang macan seperti basket lain
+                Basket reject (mutu)
               </label>
             </div>
             {isRejectBasket && (
@@ -457,14 +511,14 @@ function InboundTallyContent() {
             }
             className={`w-full ${actionBtn("primary")}`}
           >
-            {saving ? "Menyimpan..." : "Simpan basket (Sizing & Grading)"}
+            {saving ? "Menyimpan..." : "Simpan Sizing & Grading"}
           </button>
         </form>
       )}
 
       {canFinish && (
         <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className={`w-full ${actionBtn("warning")}`}>
-          {finishing ? "Memproses…" : "Selesai Sizing & Grading → Paletisasi"}
+          {finishing ? "Memproses…" : "Lanjut Paletisasi"}
         </button>
       )}
 
@@ -542,11 +596,12 @@ function InboundTallyContent() {
                 <th className="px-4 py-2 font-medium text-right">Suhu</th>
                 <th className="px-4 py-2 font-medium text-center">Reject</th>
                 <th className="px-4 py-2 font-medium">Petugas</th>
+                {canEditLogs && <th className="px-4 py-2 font-medium">Aksi</th>}
               </tr>
             </thead>
             <tbody>
               {logs.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
+                <tr><td colSpan={canEditLogs ? 12 : 11} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
               ) : (
                 logs.map((row) => (
                   <tr key={row.id} className="border-t border-gray-100 dark:border-gray-800">
@@ -567,6 +622,18 @@ function InboundTallyContent() {
                       )}
                     </td>
                     <td className="px-4 py-2">{row.weighedBy}</td>
+                    {canEditLogs && (
+                      <td className="px-4 py-2">
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => startEditLog(row)} className={actionBtn("info", "xs")}>
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => void handleDeleteLog(row.id)} className={actionBtn("danger", "xs")}>
+                            Hapus
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

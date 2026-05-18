@@ -12,6 +12,7 @@ import {
   createPurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,
+  lockPurchaseOrder,
 } from "@/lib/inbound-api";
 import { useAuth } from "@/context/AuthContext";
 import { actionBtn } from "@/lib/ui-action";
@@ -36,8 +37,8 @@ type Toast = { type: "success" | "error"; message: string } | null;
 
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
   OPEN: { label: "Open", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
-  PARTIAL: { label: "Partial", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
-  COMPLETED: { label: "Completed", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
+  USED: { label: "Used", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
+  LOCKED: { label: "Locked", cls: "bg-slate-200 text-slate-800 dark:bg-slate-700/50 dark:text-slate-200" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -59,6 +60,7 @@ function PurchaseOrdersContent() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingPo, setEditingPo] = useState<PurchaseOrderRow | null>(null);
   const [deletingPoId, setDeletingPoId] = useState<number | null>(null);
+  const [lockingPoId, setLockingPoId] = useState<number | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set());
 
@@ -100,7 +102,7 @@ function PurchaseOrdersContent() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Purchase Orders</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-xl">
-            Kelola pesanan pembelian ikan dari supplier. PO digunakan sebagai referensi saat registrasi penerimaan.
+            Kelola pesanan pembelian ikan dari supplier. PO <strong>Open</strong> / <strong>Used</strong> bisa dipakai untuk penerimaan berulang; kunci PO (<strong>Locked</strong>) setelah semua penerimaan selesai.
           </p>
         </div>
         {canManagePo && (
@@ -129,7 +131,7 @@ function PurchaseOrdersContent() {
                 <th className="px-4 py-3 font-medium">Kode PO</th>
                 <th className="px-4 py-3 font-medium">Supplier</th>
                 <th className="px-4 py-3 font-medium">Tgl Kedatangan</th>
-                <th className="px-4 py-3 font-medium">Jumlah Item</th>
+                <th className="px-4 py-3 font-medium text-right tabular-nums whitespace-nowrap w-28">Jumlah Item</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Aksi</th>
               </tr>
@@ -159,8 +161,22 @@ function PurchaseOrdersContent() {
                         setDeletingPoId(null);
                       }
                     }}
+                    onLock={async () => {
+                      try {
+                        await lockPurchaseOrder(po.poId);
+                        setToast({ type: "success", message: `PO ${po.poCode} dikunci — tidak bisa penerimaan baru.` });
+                        await fetchPOs();
+                      } catch (err: unknown) {
+                        const axiosErr = err as { response?: { data?: { message?: string } } };
+                        setToast({ type: "error", message: axiosErr.response?.data?.message || "Gagal mengunci Purchase Order" });
+                      } finally {
+                        setLockingPoId(null);
+                      }
+                    }}
                     deletingPoId={deletingPoId}
                     setDeletingPoId={setDeletingPoId}
+                    lockingPoId={lockingPoId}
+                    setLockingPoId={setLockingPoId}
                     canManagePo={canManagePo}
                   />
                 );
@@ -207,8 +223,11 @@ function PoTableRow({
   onToggle,
   onEdit,
   onDelete,
+  onLock,
   deletingPoId,
   setDeletingPoId,
+  lockingPoId,
+  setLockingPoId,
   canManagePo,
 }: {
   po: PurchaseOrderRow;
@@ -216,11 +235,17 @@ function PoTableRow({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
+  onLock: () => Promise<void>;
   deletingPoId: number | null;
   setDeletingPoId: (id: number | null) => void;
+  lockingPoId: number | null;
+  setLockingPoId: (id: number | null) => void;
   canManagePo: boolean;
 }) {
-  const canEditDelete = canManagePo && po.status === "OPEN";
+  const status = (po.status ?? "").toUpperCase();
+  const canEditDelete = canManagePo && status === "OPEN";
+  const canLock = canManagePo && status === "USED";
+  const showActions = canEditDelete || canLock;
   return (
     <>
       <tr className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5">
@@ -232,34 +257,51 @@ function PoTableRow({
         <td className="px-4 py-3 font-mono text-xs font-semibold">{po.poCode}</td>
         <td className="px-4 py-3">{po.supplierName}</td>
         <td className="px-4 py-3 whitespace-nowrap">{formatDate(po.expectedArrivalDate)}</td>
-        <td className="px-4 py-3 text-center">{po.details.length}</td>
+        <td className="px-4 py-3 text-right tabular-nums">{po.details.length}</td>
         <td className="px-4 py-3"><StatusBadge status={po.status} /></td>
         <td className="px-4 py-3">
-          <div className="inline-flex gap-2">
+          {showActions ? (
+            <div className="inline-flex gap-2">
+            {canEditDelete && (
             <button
               type="button"
               onClick={onEdit}
-              disabled={!canEditDelete}
               className={actionBtn("info", "xs")}
             >
               Edit
             </button>
-            {deletingPoId === po.poId && canManagePo ? (
-              <>
-                <button type="button" onClick={() => void onDelete()} className={actionBtn("danger", "xs")}>Ya, Hapus</button>
-                <button type="button" onClick={() => setDeletingPoId(null)} className={actionBtn("neutral", "xs")}>Batal</button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setDeletingPoId(po.poId)}
-                disabled={!canEditDelete}
-                className={actionBtn("danger", "xs")}
-              >
-                Hapus
-              </button>
             )}
-          </div>
+            {canLock && (
+              lockingPoId === po.poId ? (
+                <>
+                  <button type="button" onClick={() => void onLock()} className={actionBtn("warning", "xs")}>Ya, Kunci</button>
+                  <button type="button" onClick={() => setLockingPoId(null)} className={actionBtn("neutral", "xs")}>Batal</button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setLockingPoId(po.poId)}
+                  className={actionBtn("warning", "xs")}
+                >
+                  Kunci PO
+                </button>
+              )
+            )}
+            {canEditDelete &&
+              (deletingPoId === po.poId ? (
+                <>
+                  <button type="button" onClick={() => void onDelete()} className={actionBtn("danger", "xs")}>Ya, Hapus</button>
+                  <button type="button" onClick={() => setDeletingPoId(null)} className={actionBtn("neutral", "xs")}>Batal</button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setDeletingPoId(po.poId)} className={actionBtn("danger", "xs")}>
+                  Hapus
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
+          )}
         </td>
       </tr>
       {open && (
@@ -274,7 +316,6 @@ function PoTableRow({
                     <th className="px-3 py-2 font-medium">Jenis Ikan</th>
                     <th className="px-3 py-2 font-medium">Bentuk</th>
                     <th className="px-3 py-2 font-medium">Size</th>
-                    <th className="px-3 py-2 font-medium">SKU</th>
                     <th className="px-3 py-2 font-medium text-right">Berat Pesanan (kg)</th>
                   </tr>
                 </thead>
@@ -285,7 +326,6 @@ function PoTableRow({
                       <td className="px-3 py-2">{d.speciesName ?? "—"}</td>
                       <td className="px-3 py-2">{d.formName ?? "—"}</td>
                       <td className="px-3 py-2">{d.itemSize ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono text-[11px]">{d.fishSkuCode ?? "—"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{d.orderedWeightKg != null ? fmtKg(d.orderedWeightKg) : "—"}</td>
                     </tr>
                   ))}

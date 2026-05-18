@@ -46,7 +46,7 @@ export default function AppShell({ children }: AppShellProps) {
       >
         <TopHeader onMenuClick={() => setMobileOpen(true)} />
 
-        <main className="p-4 md:p-6">{children}</main>
+        <main className="p-4 md:p-6 text-gray-900 dark:text-gray-100">{children}</main>
       </div>
     </div>
   );

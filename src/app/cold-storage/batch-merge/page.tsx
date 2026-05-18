@@ -9,11 +9,17 @@ import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks, mergeColdStorageBatches } from "@/lib/coldstorage-api";
+import { alertErrorClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
 import type { ColdStorageData } from "@/types";
 import type { BatchMergeResponseData, ColdStorageStockRow } from "@/types/coldstorage";
 
 function eligibleForMerge(row: ColdStorageStockRow) {
-  return row.batchStatus === "AVAILABLE" && row.kategoriStatus !== "DISPOSED";
+  const qty = Number(row.jumlahStok ?? 0);
+  return row.batchStatus === "AVAILABLE" && row.kategoriStatus !== "DISPOSED" && qty > 0;
+}
+
+function isRejectBatch(row: ColdStorageStockRow) {
+  return row.qualityGrade === "REJECT";
 }
 
 function BatchMergePageInner() {
@@ -94,7 +100,13 @@ function BatchMergePageInner() {
 
   async function handleMerge() {
     if (survivorId === "" || donorIds.size === 0) {
-      setError("Pilih batch survivor dan minimal satu donor.");
+      setError("Pilih batch penerima dan minimal satu batch donor.");
+      return;
+    }
+    const survivor = mergeableRows.find((r) => r.batchId === survivorId);
+    const donors = mergeableRows.filter((r) => donorIds.has(r.batchId));
+    if (survivor && donors.some((d) => isRejectBatch(d) !== isRejectBatch(survivor))) {
+      setError("Tidak dapat menggabung batch reject dengan batch non-reject.");
       return;
     }
     setBusy(true);
@@ -124,20 +136,19 @@ function BatchMergePageInner() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-navy dark:text-white">Gabung batch (kandang macan)</h1>
+        <h1 className="text-2xl font-bold text-navy dark:text-white">Gabung Batch (Kandang Macan)</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Hanya <strong>species sama</strong> dan <strong>satu cold storage</strong>. Jika SKU berbeda, survivor mengikuti{" "}
-          <strong>mayoritas total berat</strong> (sama seperti paletisasi inbound). Jejak inbound donor di lineage.
+          Menggabungkan dua batch yang memiliki species yang sama
         </p>
       </header>
       <ColdStorageModuleNav />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className={alertErrorClass}>{error}</div>
       )}
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <label className="mb-1 block text-xs font-medium text-gray-500">Cold storage</label>
+        <label className={labelClass}>Cold storage</label>
         {lockedWarehouse && presetLabel ? (
           <div className="max-w-md rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-gray-900 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-gray-100">
             {presetLabel}
@@ -151,7 +162,7 @@ function BatchMergePageInner() {
           <select
             value={warehouseId}
             onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
-            className="max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+            className={`max-w-md ${inputClass}`}
             disabled={loading}
           >
             <option value="">Pilih gudang...</option>
@@ -167,25 +178,25 @@ function BatchMergePageInner() {
       {warehouseId !== "" && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch AVAILABLE</h2>
-          <p className="text-xs text-gray-500">
-            Survivor: satu radio. Donor: centang batch lain. Survivor dapat dipilih otomatis dari tautan stock opname (under 650 kg).
-          </p>
           <div className="overflow-x-auto">
             <table className="min-w-full text-[13px]">
               <thead>
-                <tr className="border-b text-left text-xs uppercase text-gray-500">
-                  <th className="px-2 py-2">Survivor</th>
-                  <th className="px-2 py-2">Donor</th>
+                <tr className="border-b text-left text-xs uppercase text-gray-500 dark:text-gray-400">
+                  <th className="px-2 py-2">Batch Penerima</th>
+                  <th className="px-2 py-2">Batch Donor</th>
                   <th className="px-2 py-2">Batch</th>
                   <th className="px-2 py-2">Species</th>
+                  <th className="px-2 py-2">Grade</th>
+                  <th className="px-2 py-2">SKU</th>
                   <th className="px-2 py-2 text-right">Stok</th>
-                  <th className="px-2 py-2">Kandang</th>
-                  <th className="px-2 py-2">Under 650 kg</th>
                 </tr>
               </thead>
               <tbody>
                 {mergeableRows.map((r) => (
-                  <tr key={r.batchId} className="border-b border-gray-100 dark:border-gray-800">
+                  <tr
+                    key={r.batchId}
+                    className={`border-b border-gray-100 dark:border-gray-800 ${isRejectBatch(r) ? "bg-red-50/50 dark:bg-red-950/20" : ""}`}
+                  >
                     <td className="px-2 py-2">
                       <input
                         type="radio"
@@ -209,27 +220,28 @@ function BatchMergePageInner() {
                         onChange={() => toggleDonor(r.batchId)}
                       />
                     </td>
-                    <td className="px-2 py-2 font-medium">{r.batchNumber}</td>
-                    <td className="px-2 py-2">{r.speciesName ?? "—"}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">
-                      {r.jumlahStok ?? 0} {r.unit ?? ""}
-                    </td>
-                    <td className="px-2 py-2">{r.kandangMacanCode ?? "—"}</td>
-                    <td className="px-2 py-2">
-                      {r.kandangUnderCapacity ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                          Ya
+                    <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100">
+                      {r.batchNumber}
+                      {isRejectBatch(r) ? (
+                        <span className="ml-1.5 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-300">
+                          Reject
                         </span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-200">{r.speciesName ?? "—"}</td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-200">
+                      {r.gradeLabel ?? r.qualityGrade ?? "—"}
+                    </td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-200">{r.fishSkuCode ?? "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
+                      {r.jumlahStok ?? 0} {r.unit ?? ""}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {mergeableRows.length === 0 && (
-              <p className="py-4 text-sm text-gray-500">Tidak ada batch AVAILABLE di gudang ini.</p>
+              <p className="py-4 text-sm text-gray-500 dark:text-gray-400">Tidak ada batch AVAILABLE di gudang ini.</p>
             )}
           </div>
           <Button
@@ -237,7 +249,7 @@ function BatchMergePageInner() {
             onClick={() => void handleMerge()}
             disabled={busy || survivorId === "" || donorIds.size === 0}
           >
-            {busy ? "Menggabung..." : "Gabungkan ke survivor"}
+            {busy ? "Menggabung..." : "Gabungkan"}
           </Button>
         </section>
       )}
@@ -285,7 +297,7 @@ export default function BatchMergePage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <Suspense fallback={<div className="p-6 text-sm text-gray-500">Memuat…</div>}>
+        <Suspense fallback={<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat…</div>}>
           <BatchMergePageInner />
         </Suspense>
       </AppShell>

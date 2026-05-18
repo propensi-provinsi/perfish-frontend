@@ -15,12 +15,25 @@ import {
   listStockOpnameSessions,
   updateStockOpnameLines,
 } from "@/lib/coldstorage-api";
+import {
+  alertErrorClass,
+  alertSuccessClass,
+  compareStockOpnamePeriodDesc,
+  formatPeriodDisplay,
+  inputClass,
+  isStockOpnameDateAfterToday,
+  labelClass,
+  periodYyyymmFromDateInput,
+} from "@/lib/coldstorage-ui";
 import type { ColdStorageData } from "@/types";
 import type { StockOpnameLineResponse, StockOpnameSessionResponse } from "@/types/coldstorage";
 
-function currentYyyymm() {
+function todayIsoDate() {
   const d = new Date();
-  return d.getFullYear() * 100 + (d.getMonth() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function fmtQty(v: number | string | null | undefined) {
@@ -59,7 +72,7 @@ function StockOpnamePageInner() {
 
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
   const [coldStorageId, setColdStorageId] = useState<number | "">("");
-  const [periodYyyymm, setPeriodYyyymm] = useState<number>(currentYyyymm());
+  const [periodDate, setPeriodDate] = useState(todayIsoDate());
   const [notes, setNotes] = useState("");
   const [sessions, setSessions] = useState<StockOpnameSessionResponse[]>([]);
   const [activeSession, setActiveSession] = useState<StockOpnameSessionResponse | null>(null);
@@ -90,7 +103,8 @@ function StockOpnamePageInner() {
       return;
     }
     const list = await listStockOpnameSessions(Number(coldStorageId));
-    setSessions(list);
+    const sorted = [...list].sort((a, b) => compareStockOpnamePeriodDesc(a.periodYyyymm, b.periodYyyymm));
+    setSessions(sorted);
   }, [coldStorageId]);
 
   useEffect(() => {
@@ -124,13 +138,24 @@ function StockOpnamePageInner() {
     return c ? `${c.csCode} — ${c.csName}` : `Cold storage #${coldStorageId}`;
   }, [coldStorageId, coldStorages, lockedWarehouse]);
 
-  const isDraft = activeSession?.status === "DRAFT";
+  const [sessionEditMode, setSessionEditMode] = useState(false);
 
-  const openSession = async (sessionId: number) => {
+  const isDraft = activeSession?.status === "DRAFT";
+  const isPosted = activeSession?.status === "POSTED";
+  const canEditInputs = isDraft || (isPosted && sessionEditMode);
+
+  const warehouseTitle = useMemo(() => {
+    if (coldStorageId === "") return "Gudang";
+    const c = coldStorages.find((x) => x.coldStorageId === coldStorageId);
+    return c ? c.csName : `Gudang #${coldStorageId}`;
+  }, [coldStorageId, coldStorages]);
+
+  const openSession = async (sessionId: number, editMode = false) => {
     setError(null);
     setInfo(null);
     const s = await getStockOpnameSession(sessionId);
     setActiveSession(s);
+    setSessionEditMode(s.status === "DRAFT" || editMode);
     const nc: Record<number, string> = {};
     const nt: Record<number, string> = {};
     for (const line of s.lines ?? []) {
@@ -154,6 +179,15 @@ function StockOpnamePageInner() {
     setError(null);
     setInfo(null);
     try {
+      if (isStockOpnameDateAfterToday(periodDate)) {
+        setError("Tanggal stock opname tidak boleh melebihi hari ini.");
+        return;
+      }
+      const periodYyyymm = periodYyyymmFromDateInput(periodDate);
+      if (!periodYyyymm) {
+        setError("Periode tidak valid.");
+        return;
+      }
       const created = await createStockOpnameSession({
         coldStorageId: Number(coldStorageId),
         periodYyyymm,
@@ -173,7 +207,7 @@ function StockOpnamePageInner() {
   };
 
   const handleSaveLines = async () => {
-    if (!activeSession || !isDraft) return;
+    if (!activeSession || !canEditInputs) return;
     const lines = (activeSession.lines ?? []).map((l) => {
       const raw = counts[l.lineId] ?? String(l.systemQtyKg);
       const n = Number(String(raw).replace(",", "."));
@@ -222,33 +256,24 @@ function StockOpnamePageInner() {
 
   const sessionRows = useMemo(() => sessions, [sessions]);
 
-  const mergeHref = (batchId: number) =>
-    `/cold-storage/batch-merge?coldStorageId=${encodeURIComponent(String(coldStorageId))}&survivorBatchId=${encodeURIComponent(String(batchId))}`;
-
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-navy dark:text-white">Stock Opname Cold Storage</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Opname per <strong>batch</strong> (isi kandang macan): catat berat fisik dan suhu ruang penyimpanan; shrinkage
-          dan status suhu vs SKU ditampilkan setelah simpan. Posting memperbarui <code>current_quantity</code> per
-          batch.
+          Melakukan pengecekan rutin stock untuk transparansi stok
         </p>
       </header>
       <ColdStorageModuleNav />
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-      {info && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{info}</div>
-      )}
+      {error && <div className={alertErrorClass}>{error}</div>}
+      {info && <div className={alertSuccessClass}>{info}</div>}
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">Buat draft bulanan</h2>
+        <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">Buat Draft Bulanan</h2>
         <div className="grid gap-3 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Cold storage</label>
+            <label className={labelClass}>Cold storage</label>
             {lockedWarehouse && presetLabel ? (
               <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-gray-900 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-gray-100">
                 {presetLabel}
@@ -266,7 +291,7 @@ function StockOpnamePageInner() {
                   setColdStorageId(e.target.value ? Number(e.target.value) : "");
                   setActiveSession(null);
                 }}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+                className={inputClass}
                 disabled={loading}
               >
                 <option value="">Pilih gudang...</option>
@@ -279,23 +304,22 @@ function StockOpnamePageInner() {
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Periode (YYYYMM)</label>
+            <label className={labelClass}>Periode (DD/MM/YYYY)</label>
             <input
-              type="number"
-              min={200001}
-              max={209912}
-              value={periodYyyymm}
-              onChange={(e) => setPeriodYyyymm(Number(e.target.value))}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              type="date"
+              value={periodDate}
+              max={todayIsoDate()}
+              onChange={(e) => setPeriodDate(e.target.value)}
+              className={inputClass}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">Catatan (opsional)</label>
+            <label className={labelClass}>Catatan (opsional)</label>
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-section"
+              className={inputClass}
               placeholder="Contoh: Opname rutin Mei"
             />
           </div>
@@ -308,41 +332,59 @@ function StockOpnamePageInner() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">Sesi di gudang ini</h2>
+        <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Stock Opname ({warehouseTitle})
+        </h2>
         {coldStorageId === "" ? (
-          <p className="text-sm text-gray-500">Pilih cold storage untuk melihat daftar sesi.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Pilih cold storage untuk melihat daftar sesi.</p>
         ) : sessionRows.length === 0 ? (
-          <p className="text-sm text-gray-500">Belum ada sesi stock opname.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Belum ada sesi stock opname.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-xs uppercase text-gray-500">
+                <tr className="border-b text-left text-xs uppercase text-gray-500 dark:text-gray-400">
                   <th className="py-2 pr-3">ID</th>
                   <th className="py-2 pr-3">Periode</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Posting</th>
-                  <th className="py-2 pr-3" />
+                  <th className="py-2 pr-3">Catatan</th>
+                  <th className="py-2 pr-3 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody>
                 {sessionRows.map((s) => (
                   <tr key={s.sessionId} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-2 pr-3 font-mono text-xs">{s.sessionId}</td>
-                    <td className="py-2 pr-3 tabular-nums">{s.periodYyyymm}</td>
-                    <td className="py-2 pr-3">{s.status}</td>
-                    <td className="py-2 pr-3 text-xs text-gray-600">
+                    <td className="py-2 pr-3 font-mono text-xs text-gray-800 dark:text-gray-100">{s.sessionId}</td>
+                    <td className="py-2 pr-3 tabular-nums text-gray-800 dark:text-gray-100">{formatPeriodDisplay(s.periodYyyymm)}</td>
+                    <td className="py-2 pr-3 text-gray-800 dark:text-gray-100">{s.status}</td>
+                    <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-200">
                       {s.postedAt ? new Date(s.postedAt).toLocaleString() : "—"}
                       {s.postedBy ? ` · ${s.postedBy}` : ""}
                     </td>
+                    <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-200">{s.notes ?? "—"}</td>
                     <td className="py-2 pr-3 text-right">
-                      <button
-                        type="button"
-                        className="text-cyan hover:underline"
-                        onClick={() => void openSession(s.sessionId)}
-                      >
-                        Buka
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="!bg-cyan !text-white hover:!bg-cyan-hover focus:ring-cyan/40"
+                          onClick={() => void openSession(s.sessionId, false)}
+                        >
+                          Buka
+                        </Button>
+                        {s.status === "POSTED" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-cyan text-cyan hover:bg-cyan/10 dark:border-cyan-400 dark:text-cyan-300"
+                            onClick={() => void openSession(s.sessionId, true)}
+                          >
+                            Edit
+                          </Button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -358,42 +400,65 @@ function StockOpnamePageInner() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Sesi #{activeSession.sessionId}{" "}
-                <span className="text-sm font-normal text-gray-500">({activeSession.status})</span>
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({activeSession.status})</span>
               </h2>
               {activeSession.notes ? (
-                <p className="text-xs text-gray-500">{activeSession.notes}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{activeSession.notes}</p>
               ) : null}
             </div>
-            {isDraft ? (
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveLines()} disabled={busy}>
-                  Simpan berat & suhu
+            <div className="flex flex-wrap gap-2">
+              {isPosted && !sessionEditMode ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-cyan text-cyan hover:bg-cyan/10 dark:border-cyan-400 dark:text-cyan-300"
+                  onClick={() => setSessionEditMode(true)}
+                >
+                  Edit
                 </Button>
-                <Button type="button" size="sm" onClick={() => void handleFinalize()} disabled={busy}>
-                  Posting
-                </Button>
-              </div>
-            ) : null}
+              ) : null}
+              {canEditInputs ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveLines()} disabled={busy}>
+                    {isPosted ? "Simpan perubahan" : "Simpan berat & suhu"}
+                  </Button>
+                  {isDraft ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="!bg-cyan !text-white hover:!bg-cyan-hover"
+                      onClick={() => void handleFinalize()}
+                      disabled={busy}
+                    >
+                      Posting
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full text-[13px]">
+            <table className="w-full table-fixed text-[13px]">
               <thead>
-                <tr className="border-b text-left text-xs uppercase text-gray-500">
-                  <th className="py-2 pr-2">Batch</th>
-                  <th className="py-2 pr-2 text-right">Sistem (kg)</th>
-                  <th className="py-2 pr-2 text-right">Fisik (kg)</th>
-                  <th className="py-2 pr-2 text-right">Suhu (°C)</th>
-                  <th className="py-2 pr-2 text-right">Target SKU (°C)</th>
-                  <th className="py-2 pr-2">Suhu</th>
-                  <th className="py-2 pr-2 text-right">Shrinkage</th>
-                  <th className="py-2 pr-2">Gabung</th>
+                <tr className="border-b text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                  <th className="px-2 py-2">Batch</th>
+                  <th className="px-2 py-2">SKU</th>
+                  <th className="px-2 py-2">Grade</th>
+                  <th className="px-2 py-2 text-right">Sistem (kg)</th>
+                  <th className="px-2 py-2 text-right">Fisik (kg)</th>
+                  <th className="px-2 py-2 text-right">Suhu (°C)</th>
+                  <th className="px-2 py-2 text-right">Target SKU (°C)</th>
+                  <th className="px-2 py-2">Suhu</th>
+                  <th className="px-2 py-2 text-right">Shrinkage</th>
                 </tr>
               </thead>
               <tbody>
                 {(activeSession.lines ?? []).map((line: StockOpnameLineResponse) => {
-                  const ts = isDraft
-                    ? tempStatusPreview(line.targetStorageTempC, temps[line.lineId] ?? "")
+                  const target = line.targetStorageTempC;
+                  const ts = canEditInputs
+                    ? tempStatusPreview(target, temps[line.lineId] ?? "")
                     : (line.temperatureStatus as "OK" | "WARNING" | "NO_TARGET" | "NOT_MEASURED" | undefined) ??
                       "NOT_MEASURED";
                   const tempBadge =
@@ -406,23 +471,28 @@ function StockOpnamePageInner() {
                         OK
                       </span>
                     ) : ts === "NO_TARGET" ? (
-                      <span className="text-[10px] text-gray-500">Tanpa target</span>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400">Tanpa target</span>
                     ) : (
-                      <span className="text-[10px] text-gray-500">Belum ukur</span>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400">Belum ukur</span>
                     );
                   const shrink =
                     line.shrinkagePct != null && line.shrinkagePct !== ""
                       ? `${Number(String(line.shrinkagePct).replace(",", ".")).toFixed(2)}%`
                       : shrinkPreviewPct(line.systemQtyKg, counts[line.lineId] ?? String(line.systemQtyKg));
-                  const showMerge =
-                    line.underKandangNominalKg && coldStorageId !== "" && line.batchId != null;
                   return (
                     <tr key={line.lineId} className="border-b border-gray-100 dark:border-gray-800">
-                      <td className="py-2 pr-2 font-medium">{line.batchNumber ?? "—"}</td>
-                      <td className="py-2 pr-2 text-xs">{line.fishSkuCode ?? "—"}</td>
-                      <td className="py-2 pr-2 text-right tabular-nums">{fmtQty(line.systemQtyKg)}</td>
+                      <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        {line.batchNumber ?? "—"}
+                      </td>
+                      <td className="px-2 py-2 text-gray-700 dark:text-gray-200">{line.fishSkuCode ?? "—"}</td>
+                      <td className="px-2 py-2 text-gray-700 dark:text-gray-200">
+                        {line.gradeLabel ?? line.qualityGrade ?? "—"}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">
+                        {fmtQty(line.systemQtyKg)}
+                      </td>
                       <td className="py-2 pr-2 text-right">
-                        {isDraft ? (
+                        {canEditInputs ? (
                           <input
                             type="text"
                             inputMode="decimal"
@@ -433,14 +503,14 @@ function StockOpnamePageInner() {
                                 [line.lineId]: e.target.value,
                               }))
                             }
-                            className="w-24 rounded border border-gray-300 px-2 py-1 text-right tabular-nums dark:border-gray-600 dark:bg-dark-section"
+                            className="w-24 rounded border border-gray-300 px-2 py-1 text-right tabular-nums text-gray-900 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
                           />
                         ) : (
-                          <span className="tabular-nums">{fmtQty(line.countedQtyKg)}</span>
+                          <span className="tabular-nums text-gray-800 dark:text-gray-100">{fmtQty(line.countedQtyKg)}</span>
                         )}
                       </td>
                       <td className="py-2 pr-2 text-right">
-                        {isDraft ? (
+                        {canEditInputs ? (
                           <input
                             type="text"
                             inputMode="decimal"
@@ -451,28 +521,18 @@ function StockOpnamePageInner() {
                                 [line.lineId]: e.target.value,
                               }))
                             }
-                            className="w-20 rounded border border-gray-300 px-2 py-1 text-right tabular-nums dark:border-gray-600 dark:bg-dark-section"
+                            className="w-20 rounded border border-gray-300 px-2 py-1 text-right tabular-nums text-gray-900 dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
                             placeholder="°C"
                           />
                         ) : (
-                          <span className="tabular-nums">{fmtQty(line.countedTempC)}</span>
+                          <span className="tabular-nums text-gray-800 dark:text-gray-100">{fmtQty(line.countedTempC)}</span>
                         )}
                       </td>
-                      <td className="py-2 pr-2 text-right tabular-nums text-gray-600">{fmtQty(line.targetStorageTempC)}</td>
-                      <td className="py-2 pr-2">{tempBadge}</td>
-                      <td className="py-2 pr-2 text-right tabular-nums">{shrink}</td>
-                      <td className="py-2 pr-2">
-                        {showMerge ? (
-                          <Link
-                            href={mergeHref(line.batchId!)}
-                            className="text-xs font-semibold text-cyan hover:underline"
-                          >
-                            Gabung batch
-                          </Link>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                      <td className="px-2 py-2 text-right tabular-nums text-gray-600 dark:text-gray-200">
+                        {fmtQty(target)}
                       </td>
+                      <td className="px-2 py-2">{tempBadge}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">{shrink}</td>
                     </tr>
                   );
                 })}
@@ -489,7 +549,7 @@ export default function StockOpnamePage() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <Suspense fallback={<div className="p-6 text-sm text-gray-500">Memuat…</div>}>
+        <Suspense fallback={<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat…</div>}>
           <StockOpnamePageInner />
         </Suspense>
       </AppShell>

@@ -10,12 +10,17 @@ import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/api";
 import type { ApiResponse, CurrencyOption, PaymentTermOption, SupplierData } from "@/types";
 import type { MasterSupplierApprovalStatus } from "@/types/supplier";
+import {
+  type InboundStatus,
+  inboundStatusBadgeClass,
+  inboundStatusDisplayLabel,
+} from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
 
 type InboundReceipt = {
   id: string;
   batchCode: string;
-  status: string;
+  status: InboundStatus;
   supplierId?: string;
   supplierName: string;
   coldStorageLabel: string;
@@ -403,7 +408,7 @@ function RingkasanSupplierContent() {
                                 <tr className="bg-white text-left text-gray-600 dark:bg-dark-card dark:text-gray-400">
                                   <th className="px-3 py-2 font-medium">Kode</th>
                                   <th className="px-3 py-2 font-medium">Tanggal</th>
-                                  <th className="px-3 py-2 font-medium">Lokasi Gudang</th>
+                                  <th className="px-3 py-2 font-medium">Lokasi Penerimaan</th>
                                   <th className="px-3 py-2 font-medium">Status</th>
                                 </tr>
                               </thead>
@@ -429,29 +434,9 @@ function RingkasanSupplierContent() {
                                     </td>
                                     <td className="px-3 py-2">
                                       <span
-                                        className={`inline-flex rounded-full px-2 py-0.5 font-medium ${
-                                          r.status === "DRAFT"
-                                            ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                                            : r.status === "WEIGHING"
-                                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
-                                              : r.status === "QC_CHECK"
-                                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                                                : r.status === "PENDING"
-                                                  ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
-                                                  : r.status === "APPROVED"
-                                                  ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
-                                                  : r.status === "REJECTED"
-                                                    ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
-                                                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                                        }`}
+                                        className={`inline-flex rounded-full px-2 py-0.5 font-medium ${inboundStatusBadgeClass(r.status)}`}
                                       >
-                                        {r.status === "DRAFT" ? "Draft"
-                                          : r.status === "WEIGHING" ? "Weighing"
-                                          : r.status === "QC_CHECK" ? "QC Check"
-                                          : r.status === "PENDING" ? "Pending"
-                                          : r.status === "APPROVED" ? "Approved"
-                                          : r.status === "REJECTED" ? "Rejected"
-                                          : r.status}
+                                        {inboundStatusDisplayLabel(r.status)}
                                       </span>
                                     </td>
                                   </tr>

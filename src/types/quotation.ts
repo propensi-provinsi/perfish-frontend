@@ -26,7 +26,13 @@ export const UPDATABLE_STATUSES: { value: QuotationStatus; label: string }[] = [
 
 export interface QuotationItemData {
   id: number;
-  batchId: number;
+  productName: string;
+  fishSpeciesName?: string;
+  fishForm?: string;
+  fishGrade?: string;
+  skuCode?: string;
+  sizeSpec?: string;
+  packaging?: string;
   volumeKg: number;
   pricePerKg: number;
   totalPrice: number;
@@ -65,7 +71,14 @@ export interface QuotationData {
 // ── Request payloads ──────────────────────────────────────────────
 
 export interface QuotationItemRequest {
-  batchId: number;
+  skuId?: number;
+  productName: string;
+  fishSpeciesName?: string;
+  fishForm?: string;
+  fishGrade?: string;
+  skuCode?: string;
+  sizeSpec?: string;
+  packaging?: string;
   volumeKg: number;
   pricePerKg: number;
 }
@@ -74,6 +87,8 @@ export interface CreateQuotationPayload {
   customerId: number;
   dateIssued: string;
   dateValid: string;
+  salesType: string;
+  paymentMethod?: string;
   deliveryMethod?: string;
   deliveryLocation?: string;
   notes?: string;

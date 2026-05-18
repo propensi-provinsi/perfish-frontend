@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Button from "@/components/ui/Button";
-import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { getColdStorageStructureDetail } from "@/lib/coldstorage-api";
+import { alertErrorClass } from "@/lib/coldstorage-ui";
 import type { ColdStorageStructureDetail } from "@/types/coldstorage";
 
 function fmtKg(v: number | string | null | undefined) {
@@ -64,9 +64,6 @@ function ColdStorageStructureDetailInner() {
           <h1 className="mt-2 text-2xl font-bold text-navy dark:text-white">
             {data ? `${data.csCode} — ${data.csName}` : "Detail Cold Storage"}
           </h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Block, rack, dan posisi (aktif) pada gudang ini.
-          </p>
         </div>
         {Number.isFinite(id) && (
           <div className="flex flex-wrap gap-2">
@@ -91,7 +88,7 @@ function ColdStorageStructureDetailInner() {
                 })();
               }}
             >
-              Segarkan
+              Refresh
             </Button>
             <Link
               href={`/cold-storage/stock-opname?coldStorageId=${id}`}
@@ -102,53 +99,51 @@ function ColdStorageStructureDetailInner() {
           </div>
         )}
       </div>
-      <ColdStorageModuleNav />
-
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className={alertErrorClass}>{error}</div>
       )}
 
-      {loading && <p className="text-sm text-gray-500">Memuat...</p>}
+      {loading && <p className="text-sm text-gray-500 dark:text-gray-400">Memuat...</p>}
 
       {!loading && data && (
         <>
           <section className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-dark-card md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <div>
-              <p className="text-xs text-gray-500">Block aktif</p>
-              <p className="text-lg font-semibold tabular-nums">{data.blockCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Block aktif</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.blockCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Rack aktif</p>
-              <p className="text-lg font-semibold tabular-nums">{data.rackCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Rack aktif</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.rackCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Posisi aktif</p>
-              <p className="text-lg font-semibold tabular-nums">{data.positionCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Posisi aktif</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.positionCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Stok di gudang (ton)</p>
-              <p className="text-lg font-semibold tabular-nums">{fmtTon(data.totalStockTon ?? null)}</p>
-              <p className="text-xs text-gray-500">{fmtKg(data.totalStockKg)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Stok di gudang (ton)</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{fmtTon(data.totalStockTon ?? null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{fmtKg(data.totalStockKg)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Okupansi posisi</p>
-              <p className="text-lg font-semibold tabular-nums">{fmtPct(data.positionOccupancyRatePct ?? null)}</p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Okupansi posisi</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{fmtPct(data.positionOccupancyRatePct ?? null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {data.occupiedPositionCount != null && data.availablePositionCount != null
                   ? `${data.occupiedPositionCount} terisi · ${data.availablePositionCount} kosong`
                   : "—"}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Per status posisi</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Per status posisi</p>
               <p className="flex flex-wrap gap-1.5 text-xs">
                 {Object.entries(data.positionCountByStatus ?? {}).length === 0 ? (
-                  <span className="text-gray-500">—</span>
+                  <span className="text-gray-500 dark:text-gray-400">—</span>
                 ) : (
                   Object.entries(data.positionCountByStatus ?? {}).map(([k, v]) => (
                     <span key={k} className="inline-flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 dark:bg-gray-800">
                       <PositionStatusBadge status={k} />
-                      <span className="tabular-nums text-gray-600 dark:text-gray-300">{v}</span>
+                      <span className="tabular-nums text-gray-600 dark:text-gray-200">{v}</span>
                     </span>
                   ))
                 )}
@@ -165,7 +160,7 @@ function ColdStorageStructureDetailInner() {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {block.blockCode} — {block.blockName}
                 </h2>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {block.blockCapacity != null && block.blockCapacity > 0
                     ? `Kapasitas block (maks. rack): ${block.blockCapacity}`
                     : `Rack terpasang: ${block.racks?.length ?? 0}`}
@@ -177,7 +172,7 @@ function ColdStorageStructureDetailInner() {
                       <div className="mt-2 overflow-x-auto">
                         <table className="min-w-full text-xs">
                           <thead>
-                            <tr className="text-left text-gray-500">
+                            <tr className="text-left text-gray-500 dark:text-gray-400">
                               <th className="py-1 pr-3">Kode posisi</th>
                               <th className="py-1 pr-3">Status</th>
                               <th className="py-1 pr-3">Batch</th>
@@ -187,7 +182,7 @@ function ColdStorageStructureDetailInner() {
                           <tbody>
                             {(rack.positions ?? []).map((p) => (
                               <tr key={p.positionId} className="border-t border-gray-50 dark:border-gray-800">
-                                <td className="py-1 pr-3 font-mono">{p.positionCode}</td>
+                                <td className="py-1 pr-3 font-mono text-gray-900 dark:text-gray-100">{p.positionCode}</td>
                                 <td className="py-1 pr-3">
                                   <PositionStatusBadge status={p.status} />
                                 </td>
