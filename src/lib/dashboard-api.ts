@@ -68,6 +68,14 @@ export const dashboardApi = {
     getData("/v1/dashboard/executive", params),
 
   executiveAlerts: () => getData("/v1/dashboard/executive/alerts"),
+
+  executivePoVsSo: (params?: { period?: string; from?: string; to?: string }) =>
+    getData("/v1/dashboard/executive/po-vs-so", params),
+
+  executiveTopPartners: (params?: { period?: string; from?: string; to?: string; limit?: number }) =>
+    getData("/v1/dashboard/executive/top-partners", params),
+
+  executiveSoPendingDelivery: () => getData("/v1/dashboard/executive/so-pending-delivery"),
 };
 
 export const reportApi = {
@@ -103,4 +111,10 @@ export const reportApi = {
 
   weightDiscrepancyTrend: (params?: { from?: string; to?: string; threshold?: number }) =>
     getData("/v1/report/weight-discrepancy/trend", params),
+
+  receivingGroupRollup: (params?: { from?: string; to?: string; search?: string }) =>
+    getData("/v1/report/receiving-group/rollup", params),
+
+  stockOpnameShrinkage: (params?: { from?: string; to?: string; coldStorageId?: number }) =>
+    getData("/v1/report/stock-opname/shrinkage", params),
 };

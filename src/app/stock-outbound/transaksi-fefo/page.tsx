@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
+import { outboundChannelApi } from "@/lib/outbound-api";
 import { useAuth } from "@/context/AuthContext";
 import { ModalOverlay } from "@/components/inbound-fish/ModalPrimitives";
 import {
@@ -18,8 +19,8 @@ import type {
   Shipment,
   ShipmentDocumentChecklist,
   ShipmentStatus,
-  TransportModeOption,
 } from "@/types/stock-outbound";
+import type { OutboundChannelResponse } from "@/types/outbound";
 import { formatDate, formatDateTime, formatKg, isOpenSalesOrderStatus } from "../components/formatters";
 
 type TabKey = "proses" | "shipment";
@@ -34,13 +35,38 @@ type ScanItem = {
 };
 
 function nextShipmentStatus(current: ShipmentStatus): ShipmentStatus | null {
-  if (current === "ALLOCATED") return "OUTBOUND";
+  if (current === "ALLOCATED") return "PICKING";
+  if (current === "PICKING") return "CHECKING";
+  if (current === "CHECKING") return "LOADING";
   if (current === "OUTBOUND") return "LOADING";
   if (current === "LOADING") return "DISPATCHED";
   if (current === "DISPATCHED") return "DELIVERED";
-  if (current === "PICKING") return "OUTBOUND";
-  if (current === "CHECKING") return "OUTBOUND";
   return null;
+}
+
+const shipmentProgressStages: ShipmentStatus[] = [
+  "ALLOCATED",
+  "PICKING",
+  "CHECKING",
+  "LOADING",
+  "DISPATCHED",
+  "DELIVERED",
+];
+
+function shipmentStageIndex(status: ShipmentStatus | null | undefined) {
+  if (!status) return -1;
+  if (status === "OUTBOUND") return shipmentProgressStages.indexOf("CHECKING");
+  return shipmentProgressStages.indexOf(status);
+}
+
+function stageTone(currentIndex: number, stageIndex: number) {
+  if (stageIndex < currentIndex) {
+    return "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-300";
+  }
+  if (stageIndex === currentIndex) {
+    return "border-cyan-200 bg-cyan/10 text-cyan-700 dark:border-cyan-900 dark:text-cyan-300";
+  }
+  return "border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-dark-section dark:text-gray-400";
 }
 
 function dateAsNumber(value: string | null | undefined) {
@@ -60,7 +86,7 @@ export default function TransaksiFefoPage() {
   const [tab, setTab] = useState<TabKey>("proses");
   const [salesOrders, setSalesOrders] = useState<SalesOrderOutboundSummary[]>([]);
   const [fefoBatches, setFefoBatches] = useState<FefoBatchStock[]>([]);
-  const [transportModes, setTransportModes] = useState<TransportModeOption[]>([]);
+  const [outboundChannels, setOutboundChannels] = useState<OutboundChannelResponse[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [readinessByShipmentId, setReadinessByShipmentId] = useState<Record<number, ExportReadiness>>({});
   const [loadingReadinessIds, setLoadingReadinessIds] = useState<number[]>([]);
@@ -93,7 +119,7 @@ export default function TransaksiFefoPage() {
     destination: "",
     vehicleNumber: "",
     driverName: "",
-    transportModeId: "",
+    outboundChannelId: "",
   });
 
   const [manualForm, setManualForm] = useState({
@@ -127,7 +153,7 @@ export default function TransaksiFefoPage() {
       const [soRes, batchRes, modeRes, shipmentRes] = await Promise.all([
         stockOutboundApi.getSalesOrders(),
         stockOutboundApi.getFefoBatches(),
-        stockOutboundApi.getTransportModes(),
+        outboundChannelApi.getAll(),
         stockOutboundApi.getShipments(),
       ]);
 
@@ -136,7 +162,7 @@ export default function TransaksiFefoPage() {
 
       setSalesOrders(soData);
       setFefoBatches(batchRes.data.data ?? []);
-      setTransportModes(modeRes.data.data ?? []);
+      setOutboundChannels(modeRes.data.data ?? []);
       setShipments(shipmentData);
 
       const canCheckReadiness = Boolean(user?.role && STOCK_OUTBOUND_EXPORT_ROLES.includes(user.role));
@@ -308,7 +334,7 @@ export default function TransaksiFefoPage() {
       ...prev,
       destination: selectedShipment.destination ?? "",
       vehicleNumber: selectedShipment.vehicleNumber ?? "",
-      transportModeId: selectedShipment.outboundChannelId != null ? String(selectedShipment.outboundChannelId) : "",
+      outboundChannelId: selectedShipment.outboundChannelId != null ? String(selectedShipment.outboundChannelId) : "",
     }));
   }, [selectedShipment]);
 
@@ -550,14 +576,14 @@ export default function TransaksiFefoPage() {
       return;
     }
 
-    if (selectedShipment.status !== "OUTBOUND") {
-      setError("Detail delivery hanya bisa diisi saat status Delivery Order OUTBOUND.");
+    if (selectedShipment.status !== "CHECKING" && selectedShipment.status !== "OUTBOUND") {
+      setError("Detail delivery hanya bisa diisi saat status Delivery Order CHECKING / OUTBOUND.");
       clearAlert();
       return;
     }
 
-    if (!shipmentForm.destination.trim() || !shipmentForm.vehicleNumber.trim() || !shipmentForm.transportModeId) {
-      setError("Destination, nomor kendaraan, dan moda transport wajib diisi sebelum lanjut ke LOADING.");
+    if (!shipmentForm.destination.trim() || !shipmentForm.vehicleNumber.trim() || !shipmentForm.outboundChannelId) {
+      setError("Destination, nomor kendaraan, dan channel outbound wajib diisi sebelum lanjut ke LOADING.");
       clearAlert();
       return;
     }
@@ -569,7 +595,7 @@ export default function TransaksiFefoPage() {
       await stockOutboundApi.updateShipmentDetails(selectedShipmentId, {
         destination: shipmentForm.destination.trim(),
         vehicleNumber: shipmentForm.vehicleNumber.trim(),
-        outboundChannelId: shipmentForm.transportModeId ? Number(shipmentForm.transportModeId) : undefined,
+        outboundChannelId: shipmentForm.outboundChannelId ? Number(shipmentForm.outboundChannelId) : undefined,
         remarks: [
           shipmentForm.driverName ? `Driver: ${shipmentForm.driverName}` : "",
         ]
@@ -660,7 +686,7 @@ export default function TransaksiFefoPage() {
   return (
     <StockOutboundModuleShell
       title="Transaksi FEFO"
-      description="Alur operasional: alokasi FEFO/manual mengunci batch dan otomatis membuat Delivery Order (status ALLOCATED), lanjut ke OUTBOUND, isi detail delivery, lalu proses LOADING hingga DISPATCHED."
+      description="Alur operasional: alokasi FEFO/manual mengunci batch dan otomatis membuat Delivery Order, lalu bergerak bertahap dari ALLOCATED ke PICKING, CHECKING, LOADING, DISPATCHED, hingga DELIVERED."
     >
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-3">
         <div className="grid grid-cols-2 gap-2 md:w-[380px]">
@@ -1000,7 +1026,7 @@ export default function TransaksiFefoPage() {
             </div>
 
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-              Delivery Order dibuat otomatis saat alokasi dikunci. Lanjutkan ke tab Shipment untuk status OUTBOUND, isi detail delivery, lalu lanjutkan ke LOADING dan DISPATCHED.
+              Delivery Order dibuat otomatis saat alokasi dikunci. Lanjutkan ke tab Shipment untuk PICKING, CHECKING, isi detail delivery, lalu proses LOADING dan DISPATCHED.
             </div>
           </article>
 
@@ -1050,6 +1076,56 @@ export default function TransaksiFefoPage() {
         <section className="space-y-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
           <h2 className="text-base font-semibold text-navy dark:text-white">Progress Shipment</h2>
 
+          {selectedShipment ? (
+            <div className="space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-navy dark:text-white">{selectedShipment.shipmentNumber}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Status aktif: {selectedShipment.status === "OUTBOUND" ? "CHECKING" : selectedShipment.status}
+                  </p>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Last update: {formatDateTime(selectedShipment.statusLogs.at(-1)?.changedAt ?? selectedShipment.createdAt)}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
+                {shipmentProgressStages.map((stage, index) => {
+                  const currentIndex = shipmentStageIndex(selectedShipment.status);
+                  return (
+                    <div
+                      key={stage}
+                      className={`rounded-lg border px-3 py-3 text-center text-xs font-semibold ${stageTone(currentIndex, index)}`}
+                    >
+                      <p>{stage}</p>
+                      <p className="mt-1 text-[11px] font-normal opacity-80">
+                        {index < currentIndex ? "Selesai" : index === currentIndex ? "Aktif" : "Menunggu"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {(selectedShipment.statusLogs ?? []).length > 0 ? (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-3">
+                  <p className="text-sm font-semibold text-navy dark:text-white">Riwayat Status</p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {selectedShipment.statusLogs.map((log) => (
+                      <div key={log.logId} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-xs">
+                        <p className="font-semibold text-gray-700 dark:text-gray-200">
+                          {(log.oldStatus ?? "START")} → {log.newStatus}
+                        </p>
+                        <p className="mt-1 text-gray-500 dark:text-gray-400">{formatDateTime(log.changedAt)}</p>
+                        <p className="mt-1 text-gray-500 dark:text-gray-400">{log.changedBy ?? "-"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <select
               value={selectedShipmentId ?? ""}
@@ -1072,14 +1148,14 @@ export default function TransaksiFefoPage() {
               className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm"
             />
             <select
-              value={shipmentForm.transportModeId}
-              onChange={(event) => setShipmentForm((prev) => ({ ...prev, transportModeId: event.target.value }))}
+              value={shipmentForm.outboundChannelId}
+              onChange={(event) => setShipmentForm((prev) => ({ ...prev, outboundChannelId: event.target.value }))}
               className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
             >
-              <option value="">Pilih Moda Transport</option>
-              {transportModes.filter((item) => item.isActive).map((item) => (
-                <option key={item.transportModeId} value={item.transportModeId}>
-                  {item.modeCode} - {item.modeName}
+              <option value="">Pilih Channel Outbound</option>
+              {outboundChannels.filter((item) => item.isActive).map((item) => (
+                <option key={item.channelId} value={item.channelId}>
+                  {item.channelCode} - {item.channelName}{item.modeName ? ` (${item.modeName})` : ""}
                 </option>
               ))}
             </select>
@@ -1107,7 +1183,11 @@ export default function TransaksiFefoPage() {
             <button
               type="button"
               onClick={handleSaveShipmentDetails}
-              disabled={!selectedShipment || selectedShipment.status !== "OUTBOUND" || savingShipmentDetails}
+              disabled={
+                !selectedShipment ||
+                (selectedShipment.status !== "CHECKING" && selectedShipment.status !== "OUTBOUND") ||
+                savingShipmentDetails
+              }
               className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {savingShipmentDetails ? "Menyimpan Detail..." : "Simpan Detail Delivery"}
@@ -1121,7 +1201,7 @@ export default function TransaksiFefoPage() {
               </Link>
             ) : null}
             <span className="text-xs text-gray-500 dark:text-gray-400 self-center">
-              Lanjutkan status ke OUTBOUND dari tabel. Setelah OUTBOUND, isi detail delivery sebelum lanjut ke LOADING.
+              Lanjutkan status bertahap dari PICKING ke CHECKING. Isi detail delivery saat CHECKING sebelum lanjut ke LOADING.
             </span>
           </div>
 

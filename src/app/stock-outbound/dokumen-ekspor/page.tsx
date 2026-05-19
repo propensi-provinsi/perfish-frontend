@@ -9,6 +9,7 @@ import { ModalOverlay } from "@/components/inbound-fish/ModalPrimitives";
 import type {
   Certification,
   CertificationAlert,
+  CountryReadiness,
   CertificationStatusSummary,
   ExportReadiness,
   Shipment,
@@ -34,13 +35,20 @@ function resolveChecklistActionLink(key: string) {
 }
 
 function nextShipmentStatus(current: ShipmentStatus): ShipmentStatus | null {
-  if (current === "ALLOCATED") return "OUTBOUND";
+  if (current === "ALLOCATED") return "PICKING";
+  if (current === "PICKING") return "CHECKING";
+  if (current === "CHECKING") return "LOADING";
   if (current === "OUTBOUND") return "LOADING";
   if (current === "LOADING") return "DISPATCHED";
   if (current === "DISPATCHED") return "DELIVERED";
-  if (current === "PICKING") return "OUTBOUND";
-  if (current === "CHECKING") return "OUTBOUND";
   return null;
+}
+
+function parseCountryList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
 }
 
 export default function DokumenEksporPage() {
@@ -67,10 +75,29 @@ function DokumenEksporContent() {
 
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [certStatus, setCertStatus] = useState<CertificationStatusSummary | null>(null);
+  const [countryReadiness, setCountryReadiness] = useState<CountryReadiness | null>(null);
   const [alerts, setAlerts] = useState<CertificationAlert[]>([]);
+  const [certificationFilter, setCertificationFilter] = useState({
+    query: "",
+    state: "" as "" | "ACTIVE" | "WARNING" | "EXPIRED",
+    country: "",
+  });
+  const [certificationForm, setCertificationForm] = useState({
+    certificationId: null as number | null,
+    certificationName: "",
+    certificateType: "",
+    issuingBody: "",
+    gradeLevel: "",
+    issueDate: "",
+    expiryDate: "",
+    documentUrl: "",
+    responsibleUser: "",
+    countries: "",
+  });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingCertification, setSavingCertification] = useState(false);
   const [updatingShipmentId, setUpdatingShipmentId] = useState<number | null>(null);
   const [previewingDocumentId, setPreviewingDocumentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -159,17 +186,78 @@ function DokumenEksporContent() {
     () => shipments.find((item) => item.shipmentId === selectedShipmentId) ?? null,
     [shipments, selectedShipmentId]
   );
+  const availableCountries = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          certifications.flatMap((item) => item.countries ?? []).filter((item) => item && item.trim().length > 0)
+        )
+      ).sort(),
+    [certifications]
+  );
 
   const nextStatus = useMemo(
     () => (selectedShipment ? nextShipmentStatus(selectedShipment.status) : null),
     [selectedShipment]
   );
 
+  const filteredCertifications = useMemo(() => {
+    const query = certificationFilter.query.trim().toLowerCase();
+    const selectedCountry = certificationFilter.country.trim().toUpperCase();
+
+    return certifications.filter((item) => {
+      const matchesQuery =
+        !query ||
+        [
+          item.certificationName,
+          item.certificateType,
+          item.issuingBody,
+          item.gradeLevel,
+          item.responsibleUser,
+          ...(item.countries ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+
+      const matchesState = !certificationFilter.state || item.state === certificationFilter.state;
+      const matchesCountry = !selectedCountry || (item.countries ?? []).includes(selectedCountry);
+      return matchesQuery && matchesState && matchesCountry;
+    });
+  }, [certificationFilter, certifications]);
+
   const isUpdatingShipment = updatingShipmentId === selectedShipment?.shipmentId;
   const requiresReadiness = Boolean(selectedShipment?.isExport && nextStatus === "DISPATCHED");
   const readinessReadyToDispatch = Boolean(readiness && readiness.readyToDispatch && readiness.readinessScore >= 100);
   const canAdvanceShipment =
     Boolean(selectedShipment && nextStatus) && !isUpdatingShipment && (!requiresReadiness || readinessReadyToDispatch);
+
+  useEffect(() => {
+    const destination = selectedShipment?.destination?.trim().toUpperCase();
+    if (!destination) {
+      setCountryReadiness(null);
+      return;
+    }
+
+    let mounted = true;
+    stockOutboundApi
+      .getCountryReadiness(destination)
+      .then((response) => {
+        if (mounted) {
+          setCountryReadiness(response.data.data ?? null);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setCountryReadiness(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedShipment?.destination]);
 
   const assignSelectedPdf = (file: File | null) => {
     if (!file) {
@@ -318,6 +406,42 @@ function DokumenEksporContent() {
     }
   };
 
+  const handleUpdateDocumentStatus = async (
+    shipmentDocumentId: number,
+    status: TrackedDocumentStatus
+  ) => {
+    if (!selectedShipmentId) {
+      return;
+    }
+
+    const current = (checklist?.uploadedDocuments ?? []).find((item) => item.shipmentDocumentId === shipmentDocumentId);
+    if (!current) {
+      return;
+    }
+
+    try {
+      await stockOutboundApi.updateShipmentDocument(shipmentDocumentId, {
+        shipmentId: selectedShipmentId,
+        documentName: current.documentName,
+        documentNumber: current.documentNumber ?? undefined,
+        status,
+        expiryDate: current.expiryDate ?? undefined,
+        fileUrl: current.fileUrl ?? undefined,
+        countryCode: current.countryCode ?? undefined,
+        remarks: current.remarks ?? undefined,
+      });
+      await fetchShipmentContext(selectedShipmentId);
+      setSuccess("Status dokumen diperbarui.");
+      clearAlert();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal memperbarui status dokumen.";
+      setError(message);
+      clearAlert();
+    }
+  };
+
   const handleAdvanceShipment = async (shipment: Shipment, next: ShipmentStatus) => {
     if (next === "DELIVERED") {
       try {
@@ -386,6 +510,103 @@ function DokumenEksporContent() {
       setAlerts((prev) => prev.map((item) => (item.alertId === alertId ? { ...item, isRead: true } : item)));
     } catch {
       setError("Gagal memperbarui status alert sertifikasi.");
+      clearAlert();
+    }
+  };
+
+  const resetCertificationForm = () => {
+    setCertificationForm({
+      certificationId: null,
+      certificationName: "",
+      certificateType: "",
+      issuingBody: "",
+      gradeLevel: "",
+      issueDate: "",
+      expiryDate: "",
+      documentUrl: "",
+      responsibleUser: "",
+      countries: "",
+    });
+  };
+
+  const handleSaveCertification = async () => {
+    if (!certificationForm.certificationName.trim() || !certificationForm.expiryDate) {
+      setError("Nama sertifikasi dan expiry date wajib diisi.");
+      clearAlert();
+      return;
+    }
+
+    setSavingCertification(true);
+    setError(null);
+
+    try {
+      const payload = {
+        certificationName: certificationForm.certificationName.trim(),
+        certificateType: certificationForm.certificateType.trim() || undefined,
+        issuingBody: certificationForm.issuingBody.trim() || undefined,
+        gradeLevel: certificationForm.gradeLevel.trim() || undefined,
+        issueDate: certificationForm.issueDate || undefined,
+        expiryDate: certificationForm.expiryDate,
+        documentUrl: certificationForm.documentUrl.trim() || undefined,
+        responsibleUser: certificationForm.responsibleUser.trim() || undefined,
+        countries: parseCountryList(certificationForm.countries),
+      };
+
+      if (certificationForm.certificationId) {
+        await stockOutboundApi.updateCertification(certificationForm.certificationId, payload);
+        setSuccess("Sertifikasi berhasil diperbarui.");
+      } else {
+        await stockOutboundApi.createCertification(payload);
+        setSuccess("Sertifikasi berhasil ditambahkan.");
+      }
+
+      clearAlert();
+      resetCertificationForm();
+      await fetchMaster();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal menyimpan sertifikasi.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setSavingCertification(false);
+    }
+  };
+
+  const handleEditCertification = (item: Certification) => {
+    setCertificationForm({
+      certificationId: item.certificationId,
+      certificationName: item.certificationName ?? "",
+      certificateType: item.certificateType ?? "",
+      issuingBody: item.issuingBody ?? "",
+      gradeLevel: item.gradeLevel ?? "",
+      issueDate: item.issueDate ?? "",
+      expiryDate: item.expiryDate ?? "",
+      documentUrl: item.documentUrl ?? "",
+      responsibleUser: item.responsibleUser ?? "",
+      countries: (item.countries ?? []).join(", "),
+    });
+  };
+
+  const handleDeleteCertification = async (certificationId: number) => {
+    if (!window.confirm("Hapus sertifikasi ini?")) {
+      return;
+    }
+
+    try {
+      await stockOutboundApi.deleteCertification(certificationId);
+      setSuccess("Sertifikasi berhasil dihapus.");
+      clearAlert();
+      if (certificationForm.certificationId === certificationId) {
+        resetCertificationForm();
+      }
+      await fetchMaster();
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal menghapus sertifikasi.";
+      setError(message);
       clearAlert();
     }
   };
@@ -639,6 +860,79 @@ function DokumenEksporContent() {
         <article className="space-y-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-4">
           <h2 className="text-base font-semibold text-navy dark:text-white">Sertifikasi & Alert</h2>
 
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <input
+              value={certificationFilter.query}
+              onChange={(event) =>
+                setCertificationFilter((prev) => ({ ...prev, query: event.target.value }))
+              }
+              placeholder="Cari nama sertifikasi / issuing body / PIC"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            />
+            <select
+              value={certificationFilter.country}
+              onChange={(event) =>
+                setCertificationFilter((prev) => ({ ...prev, country: event.target.value }))
+              }
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Semua Negara</option>
+              {availableCountries.map((country) => (
+                <option key={country} value={country}>
+                  {country}
+                </option>
+              ))}
+            </select>
+            <select
+              value={certificationFilter.state}
+              onChange={(event) =>
+                setCertificationFilter((prev) => ({
+                  ...prev,
+                  state: event.target.value as typeof certificationFilter.state,
+                }))
+              }
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+            >
+              <option value="">Semua Status</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="WARNING">WARNING</option>
+              <option value="EXPIRED">EXPIRED</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setCertificationFilter({ query: "", state: "", country: "" })}
+              className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-semibold"
+            >
+              Reset Filter
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section p-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Country Readiness</p>
+              <p className="mt-1 text-xl font-bold text-navy dark:text-white">
+                {countryReadiness?.readinessPercent ?? 0}%
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {selectedShipment?.destination ? `Tujuan: ${selectedShipment.destination}` : "Pilih shipment ekspor"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section p-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Coverage Negara</p>
+              <p className="mt-1 text-xl font-bold text-green-700 dark:text-green-400">
+                {countryReadiness?.activeCertifications ?? 0}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">sertifikasi aktif untuk negara tujuan</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section p-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Gap Sertifikasi</p>
+              <p className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-400">
+                {(countryReadiness?.warningCertifications ?? 0) + (countryReadiness?.expiredCertifications ?? 0)}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">warning + expired</p>
+            </div>
+          </div>
+
           <div className="space-y-2 max-h-48 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 p-2">
             {alerts.length === 0 ? (
               <p className="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">No data available.</p>
@@ -667,28 +961,155 @@ function DokumenEksporContent() {
               <thead className="bg-gray-50 dark:bg-dark-section text-left">
                 <tr>
                   <th className="px-2 py-2">Sertifikasi</th>
+                  <th className="px-2 py-2">Negara</th>
                   <th className="px-2 py-2">State</th>
                   <th className="px-2 py-2">Expiry</th>
+                  <th className="px-2 py-2">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                {certifications.length === 0 ? (
+                {filteredCertifications.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-2 py-3 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={5} className="px-2 py-3 text-center text-gray-500 dark:text-gray-400">
                       No data available.
                     </td>
                   </tr>
                 ) : (
-                  certifications.map((item) => (
+                  filteredCertifications.map((item) => (
                     <tr key={item.certificationId} className="border-t border-gray-100 dark:border-gray-800">
-                      <td className="px-2 py-2">{item.certificationName}</td>
+                      <td className="px-2 py-2">
+                        <p className="font-semibold">{item.certificationName}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{item.certificateType ?? "-"}</p>
+                      </td>
+                      <td className="px-2 py-2">{(item.countries ?? []).join(", ") || "-"}</td>
                       <td className="px-2 py-2">{item.state}</td>
                       <td className="px-2 py-2">{formatDate(item.expiryDate)}</td>
+                      <td className="px-2 py-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditCertification(item)}
+                            className="text-xs font-semibold text-cyan"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCertification(item.certificationId)}
+                            className="text-xs font-semibold text-red-600 dark:text-red-300"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-navy dark:text-white">
+                {certificationForm.certificationId ? "Edit Sertifikasi" : "Tambah Sertifikasi"}
+              </h3>
+              {certificationForm.certificationId ? (
+                <button
+                  type="button"
+                  onClick={resetCertificationForm}
+                  className="text-xs font-semibold text-gray-500 dark:text-gray-400"
+                >
+                  Batal Edit
+                </button>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <input
+                value={certificationForm.certificationName}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, certificationName: event.target.value }))
+                }
+                placeholder="Nama Sertifikasi"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.certificateType}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, certificateType: event.target.value }))
+                }
+                placeholder="Tipe Sertifikat"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.issuingBody}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, issuingBody: event.target.value }))
+                }
+                placeholder="Issuing Body"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.gradeLevel}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, gradeLevel: event.target.value }))
+                }
+                placeholder="Grade / Level"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={certificationForm.issueDate}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, issueDate: event.target.value }))
+                }
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={certificationForm.expiryDate}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, expiryDate: event.target.value }))
+                }
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.responsibleUser}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, responsibleUser: event.target.value }))
+                }
+                placeholder="PIC / Responsible User"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.documentUrl}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, documentUrl: event.target.value }))
+                }
+                placeholder="Document URL"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
+              />
+              <input
+                value={certificationForm.countries}
+                onChange={(event) =>
+                  setCertificationForm((prev) => ({ ...prev, countries: event.target.value }))
+                }
+                placeholder="Negara tujuan (pisahkan dengan koma, contoh: JP, US)"
+                className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveCertification}
+              disabled={savingCertification}
+              className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingCertification
+                ? "Menyimpan..."
+                : certificationForm.certificationId
+                  ? "Update Sertifikasi"
+                  : "Simpan Sertifikasi"}
+            </button>
           </div>
 
           <div className="rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-xs text-gray-600 dark:text-gray-300">

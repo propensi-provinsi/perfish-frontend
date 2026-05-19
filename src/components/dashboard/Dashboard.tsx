@@ -37,8 +37,13 @@ type DashboardDataState = {
   certification: AnalyticsPayload | null;
   discrepancy: AnalyticsPayload | null;
   discrepancyTrend: AnalyticsPayload | null;
+  receivingGroupRollup: AnalyticsPayload | null;
+  stockOpnameShrinkage: AnalyticsPayload | null;
   executive: AnalyticsPayload | null;
   executiveAlerts: AnalyticsPayload | null;
+  executivePoVsSo: AnalyticsPayload | null;
+  executiveTopPartners: AnalyticsPayload | null;
+  executiveSoPendingDelivery: AnalyticsPayload | null;
 };
 
 const INITIAL_DATA: DashboardDataState = {
@@ -59,8 +64,13 @@ const INITIAL_DATA: DashboardDataState = {
   certification: null,
   discrepancy: null,
   discrepancyTrend: null,
+  receivingGroupRollup: null,
+  stockOpnameShrinkage: null,
   executive: null,
   executiveAlerts: null,
+  executivePoVsSo: null,
+  executiveTopPartners: null,
+  executiveSoPendingDelivery: null,
 };
 
 export default function Dashboard() {
@@ -77,6 +87,9 @@ export default function Dashboard() {
   const [meetingPeriod, setMeetingPeriod] = useState<"weekly" | "monthly">("weekly");
   const [executivePeriod, setExecutivePeriod] = useState<string>("monthly");
   const [selectedDivision, setSelectedDivision] = useState<string>(DIVISION_OPTIONS[0]);
+  const [stockView, setStockView] = useState<"table" | "chart">("chart");
+  const [selectedStockLabel, setSelectedStockLabel] = useState<string>("");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("");
 
   const loadAll = useCallback(async () => {
     setError(null);
@@ -100,8 +113,13 @@ export default function Dashboard() {
         certification,
         discrepancy,
         discrepancyTrend,
+        receivingGroupRollup,
+        stockOpnameShrinkage,
         executive,
         executiveAlerts,
+        executivePoVsSo,
+        executiveTopPartners,
+        executiveSoPendingDelivery,
       ] = await Promise.all([
         dashboardApi.stockSummary(),
         dashboardApi.stockBreakdown({ groupBy: "species" }),
@@ -119,8 +137,13 @@ export default function Dashboard() {
         reportApi.certificationSummary(),
         reportApi.weightDiscrepancy({ from: fromDate, to: toDate, threshold: 3 }),
         reportApi.weightDiscrepancyTrend({ from: fromDate, to: toDate, threshold: 3 }),
+        reportApi.receivingGroupRollup({ from: fromDate, to: toDate }),
+        reportApi.stockOpnameShrinkage({ from: fromDate, to: toDate }),
         dashboardApi.executive({ period: executivePeriod, from: fromDate, to: toDate }),
         dashboardApi.executiveAlerts(),
+        dashboardApi.executivePoVsSo({ period: executivePeriod, from: fromDate, to: toDate }),
+        dashboardApi.executiveTopPartners({ period: executivePeriod, from: fromDate, to: toDate, limit: 5 }),
+        dashboardApi.executiveSoPendingDelivery(),
       ]);
 
       setData({
@@ -141,9 +164,15 @@ export default function Dashboard() {
         certification,
         discrepancy,
         discrepancyTrend,
+        receivingGroupRollup,
+        stockOpnameShrinkage,
         executive,
         executiveAlerts,
+        executivePoVsSo,
+        executiveTopPartners,
+        executiveSoPendingDelivery,
       });
+      setLastRefreshedAt(new Date().toISOString());
     } catch (err) {
       const message = err instanceof Error ? err.message : "Gagal memuat data dashboard";
       setError(message);
@@ -184,6 +213,12 @@ export default function Dashboard() {
   const stockSummary = data.stockSummary;
   const stockBreakdownRows = asArray(data.stockBreakdown?.items);
   const stockBatchRows = asArray(data.stockBatchDetail?.items);
+  const filteredStockBatchRows = useMemo(() => {
+    if (!selectedStockLabel) {
+      return stockBatchRows;
+    }
+    return stockBatchRows.filter((row) => asString(row.speciesName) === selectedStockLabel);
+  }, [selectedStockLabel, stockBatchRows]);
   const dailySummary = data.dailySummary;
   const dailyTrendRows = asArray(data.dailyTrend?.trend);
   const agingRows = asArray(data.aging?.categories);
@@ -199,9 +234,15 @@ export default function Dashboard() {
   const discrepancySummary = asRecord(data.discrepancy?.summary);
   const discrepancyRows = asArray(data.discrepancy?.items);
   const discrepancyTrendRows = asArray(data.discrepancyTrend?.trend);
+  const receivingGroupRows = asArray(data.receivingGroupRollup?.items);
+  const stockOpnameTrendRows = asArray(data.stockOpnameShrinkage?.trend);
   const executiveKpi = asRecord(data.executive?.kpi);
   const executiveTrend = asRecord(data.executive?.trend);
   const executiveAlerts = asArray(data.executiveAlerts?.items);
+  const poVsSoTrendRows = asArray(data.executivePoVsSo?.trend);
+  const topSuppliers = asArray(data.executiveTopPartners?.suppliers);
+  const topCustomers = asArray(data.executiveTopPartners?.customers);
+  const soPendingDeliveryRows = asArray(data.executiveSoPendingDelivery?.items);
 
   return (
     <div className="space-y-6">
@@ -313,21 +354,105 @@ export default function Dashboard() {
                 <MetricCard title="Total Grup" value={formatInt(stockBreakdownRows.length)} />
               </section>
 
-              <DataTableCard title="Breakdown Stok per Species" columns={["Label", "Quantity (Kg)", "Quantity (Ton)"]}>
-                {stockBreakdownRows.slice(0, 10).map((row) => (
-                  <tr key={asString(row.label)} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="px-3 py-2">{asString(row.label)}</td>
-                    <td className="px-3 py-2">{formatKg(asNumber(row.quantityKg))}</td>
-                    <td className="px-3 py-2">{formatTon(asNumber(row.quantityTon))}</td>
-                  </tr>
-                ))}
-              </DataTableCard>
+              <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Breakdown Stok per Species</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Last updated: {lastRefreshedAt ? new Date(lastRefreshedAt).toLocaleString("id-ID") : "-"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStockView("chart")}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                        stockView === "chart" ? "bg-cyan text-white" : "bg-gray-100 text-gray-700 dark:bg-dark-section dark:text-gray-200"
+                      }`}
+                    >
+                      Chart View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStockView("table")}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                        stockView === "table" ? "bg-cyan text-white" : "bg-gray-100 text-gray-700 dark:bg-dark-section dark:text-gray-200"
+                      }`}
+                    >
+                      Table View
+                    </button>
+                  </div>
+                </div>
+
+                {stockView === "chart" ? (
+                  <div className="space-y-3">
+                    {stockBreakdownRows.slice(0, 10).map((row) => {
+                      const label = asString(row.label);
+                      const quantityKg = asNumber(row.quantityKg);
+                      const ratio = asNumber(stockSummary?.totalStockKg) > 0
+                        ? Math.max((quantityKg / asNumber(stockSummary?.totalStockKg)) * 100, 6)
+                        : 0;
+
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setSelectedStockLabel((prev) => (prev === label ? "" : label))}
+                          className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                            selectedStockLabel === label
+                              ? "border-cyan bg-cyan/5"
+                              : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600"
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">{label}</span>
+                            <span className="text-gray-500 dark:text-gray-400">{formatKg(quantityKg)}</span>
+                          </div>
+                          <div className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-section">
+                            <div className="h-full rounded-full bg-cyan transition-all" style={{ width: `${Math.min(ratio, 100)}%` }} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700">
+                          <th className="px-3 py-2">Label</th>
+                          <th className="px-3 py-2">Quantity (Kg)</th>
+                          <th className="px-3 py-2">Quantity (Ton)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockBreakdownRows.slice(0, 10).map((row) => {
+                          const label = asString(row.label);
+                          return (
+                            <tr
+                              key={label}
+                              onClick={() => setSelectedStockLabel((prev) => (prev === label ? "" : label))}
+                              className={`cursor-pointer border-b border-gray-100 dark:border-gray-800 ${
+                                selectedStockLabel === label ? "bg-cyan/5" : ""
+                              }`}
+                            >
+                              <td className="px-3 py-2">{label}</td>
+                              <td className="px-3 py-2">{formatKg(asNumber(row.quantityKg))}</td>
+                              <td className="px-3 py-2">{formatTon(asNumber(row.quantityTon))}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
 
               <DataTableCard
-                title="Batch Detail (Top 10 Aging)"
+                title={selectedStockLabel ? `Batch Detail: ${selectedStockLabel}` : "Batch Detail (Top 10 Aging)"}
                 columns={["Batch", "Species", "Qty (Kg)", "Aging", "Lokasi", "Status"]}
               >
-                {stockBatchRows.slice(0, 10).map((row) => (
+                {filteredStockBatchRows.slice(0, 10).map((row) => (
                   <tr key={asString(row.batchId)} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="px-3 py-2 font-medium">{asString(row.batchNumber)}</td>
                     <td className="px-3 py-2">{asString(row.speciesName)}</td>
@@ -554,6 +679,38 @@ export default function Dashboard() {
                   </tr>
                 ))}
               </DataTableCard>
+
+              <DataTableCard
+                title="Receiving-Group Rollup"
+                columns={["Receipt", "Tanggal", "Supplier", "Received (Kg)", "Current (Kg)", "Batch"]}
+              >
+                {receivingGroupRows.slice(0, 12).map((row) => (
+                  <tr key={asString(row.receiptId)} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="px-3 py-2 font-medium">{asString(row.receiptCode)}</td>
+                    <td className="px-3 py-2">{asString(row.tanggalPenerimaan)}</td>
+                    <td className="px-3 py-2">{asString(row.supplierName)}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.receivedQuantityKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.currentQuantityKg))}</td>
+                    <td className="px-3 py-2">{formatInt(asNumber(row.batchCount))}</td>
+                  </tr>
+                ))}
+              </DataTableCard>
+
+              <DataTableCard
+                title="Shrinkage (Stock Opname)"
+                columns={["Periode", "System (Kg)", "Counted (Kg)", "Variance (Kg)", "Shrink %", "Session"]}
+              >
+                {stockOpnameTrendRows.map((row) => (
+                  <tr key={asString(row.periodYyyymm)} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="px-3 py-2">{asString(row.period)}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.systemKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.countedKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.varianceKg))}</td>
+                    <td className="px-3 py-2">{formatNumber(asNumber(row.shrinkagePercent), 3)}%</td>
+                    <td className="px-3 py-2">{formatInt(asNumber(row.sessionCount))}</td>
+                  </tr>
+                ))}
+              </DataTableCard>
             </div>
           )}
 
@@ -609,6 +766,62 @@ export default function Dashboard() {
                   </ul>
                 </div>
               </section>
+
+              <DataTableCard
+                title="PO vs SO (Trend)"
+                columns={["Bulan", "PO (Kg)", "Target PO", "SO (Kg)", "Target SO"]}
+              >
+                {poVsSoTrendRows.map((row) => (
+                  <tr key={asString(row.month)} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="px-3 py-2">{asString(row.month)}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.poKg))}</td>
+                    <td className="px-3 py-2">{row.poTargetKg == null ? "-" : formatKg(asNumber(row.poTargetKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.soKg))}</td>
+                    <td className="px-3 py-2">{row.soTargetKg == null ? "-" : formatKg(asNumber(row.soTargetKg))}</td>
+                  </tr>
+                ))}
+              </DataTableCard>
+
+              <section className="grid gap-4 lg:grid-cols-2">
+                <DataTableCard title="Top Supplier (PO)" columns={["Supplier", "Volume (Kg)"]}>
+                  {topSuppliers.map((row) => (
+                    <tr key={asString(row.supplierId)} className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="px-3 py-2">{asString(row.supplierName)}</td>
+                      <td className="px-3 py-2">{formatKg(asNumber(row.poKg))}</td>
+                    </tr>
+                  ))}
+                </DataTableCard>
+
+                <DataTableCard title="Top Customer (SO)" columns={["Customer", "Volume (Kg)"]}>
+                  {topCustomers.map((row) => (
+                    <tr key={asString(row.customerId)} className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="px-3 py-2">{asString(row.customerName)}</td>
+                      <td className="px-3 py-2">{formatKg(asNumber(row.soKg))}</td>
+                    </tr>
+                  ))}
+                </DataTableCard>
+              </section>
+
+              <DataTableCard
+                title="Active SO Pending Delivery"
+                columns={["SO", "Customer", "Required (Kg)", "Allocated (Kg)", "Remaining (Kg)", "Latest Shipment"]}
+              >
+                {soPendingDeliveryRows.slice(0, 12).map((row) => (
+                  <tr key={asString(row.soId)} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="px-3 py-2 font-medium">{asString(row.soNumber)}</td>
+                    <td className="px-3 py-2">{asString(row.customer)}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.requiredKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.allocatedKg))}</td>
+                    <td className="px-3 py-2">{formatKg(asNumber(row.remainingKg))}</td>
+                    <td className="px-3 py-2">
+                      {asString(row.latestShipmentStatus)}
+                      {row.latestShipmentNumber == null || row.latestShipmentNumber === ""
+                        ? ""
+                        : ` (${asString(row.latestShipmentNumber)})`}
+                    </td>
+                  </tr>
+                ))}
+              </DataTableCard>
             </div>
           )}
         </>
