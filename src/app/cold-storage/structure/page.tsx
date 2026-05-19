@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import Button from "@/components/ui/Button";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { listColdStorageStructureSummaries } from "@/lib/coldstorage-api";
@@ -34,6 +39,7 @@ function ColdStorageStructurePageInner() {
   const [rows, setRows] = useState<ColdStorageStructureSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pagination = useClientTablePagination(rows);
 
   useEffect(() => {
     void (async () => {
@@ -96,7 +102,15 @@ function ColdStorageStructurePageInner() {
         {loading ? (
           <p className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat...</p>
         ) : (
-          <table className="min-w-full text-sm">
+          <>
+            <TableListPaginationToolbar
+              totalCount={pagination.totalCount}
+              itemLabel="gudang"
+              pageSize={pagination.pageSize}
+              onPageSizeChange={pagination.setPageSize}
+              className="px-4 pt-4 mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+            />
+            <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Kode</th>
@@ -112,7 +126,7 @@ function ColdStorageStructurePageInner() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {pagination.visibleItems.map((r) => (
                 <tr key={r.coldStorageId} className="border-b border-gray-100 dark:border-gray-800">
                   <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-100">{r.csCode}</td>
                   <td className={`px-4 py-2 ${tableTdClass}`}>{r.csName}</td>
@@ -166,6 +180,15 @@ function ColdStorageStructurePageInner() {
               ))}
             </tbody>
           </table>
+            <TableListPaginationFooter
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              totalCount={pagination.totalCount}
+              onPageChange={pagination.setPage}
+              show={pagination.totalCount > 0}
+              className="px-4 pb-4 mt-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+            />
+          </>
         )}
         {!loading && rows.length === 0 && (
           <p className="p-6 text-sm text-gray-500 dark:text-gray-400">Belum ada data cold storage.</p>
@@ -177,10 +200,10 @@ function ColdStorageStructurePageInner() {
 
 export default function ColdStorageStructurePage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <ColdStorageStructurePageInner />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

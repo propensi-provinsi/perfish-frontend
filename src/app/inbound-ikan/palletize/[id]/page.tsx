@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { PALLETIZATION_ROLES } from "@/lib/rbac";
 import AppShell from "@/components/layout/AppShell";
 import {
   type InboundReceiptRow,
@@ -15,12 +16,13 @@ import {
   palletize,
 } from "@/lib/inbound-api";
 import { QRCodeSVG } from "qrcode.react";
+import { printBatchQrCodes } from "@/lib/print-batch-qr";
 import { HiOutlineTrash } from "react-icons/hi2";
 import { actionBtn } from "@/lib/ui-action";
 
 export default function PalletizePage() {
   return (
-    <ProtectedRoute allowedRoles={["WAREHOUSE_STAFF", "SUPERADMIN"]}>
+    <ProtectedRoute allowedRoles={PALLETIZATION_ROLES}>
       <AppShell>
         <PalletizeContent />
       </AppShell>
@@ -35,6 +37,12 @@ function fmtKg(v: number | string | null | undefined): string {
 }
 
 const KG_TOL = 0.005;
+
+/** Input di kartu Batch #n — border sedikit lebih tebal agar mudah terlihat. */
+const kandangFieldInputClass =
+  "w-full rounded-md border-2 border-amber-300/85 bg-white px-2.5 py-2 text-sm text-right tabular-nums shadow-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-400/40 dark:border-amber-600/70 dark:bg-dark-card dark:text-gray-100 dark:focus:border-amber-500";
+const kandangAllocInputClass =
+  "w-24 rounded-md border-2 border-amber-300/85 bg-white px-2 py-1.5 text-right text-sm tabular-nums shadow-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:border-amber-600/70 dark:bg-dark-card dark:text-gray-100 dark:disabled:border-gray-700 dark:disabled:bg-gray-800";
 
 function toNetKg(v: number | string | null | undefined): number {
   if (v == null) return NaN;
@@ -483,10 +491,7 @@ function PalletizeContent() {
         const drafts = batchesToKandangDrafts(result.batches, skuLogs, speciesMap);
         setKandangs(drafts.length > 0 ? drafts : [emptyKandang(skuLogs, speciesMap)]);
       }
-      setMsg({
-        type: "success",
-        text: `${result.batches.length} batch disimpan. Anda dapat melanjutkan batch lain atau kembali ke dashboard.`,
-      });
+      router.push("/inbound-ikan");
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
       setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal menyimpan palletisasi." });
@@ -592,7 +597,13 @@ function PalletizeContent() {
             <button type="button" onClick={() => router.push("/inbound-ikan")} className={actionBtn("primary")}>
               Kembali ke Dashboard
             </button>
-            <button type="button" onClick={() => window.print()} className={actionBtn("neutral")}>
+            <button
+              type="button"
+              onClick={() =>
+                printBatchQrCodes(createdBatches.map((b) => ({ batchNumber: b.batchNumber })))
+              }
+              className={actionBtn("neutral")}
+            >
               Cetak QR Code
             </button>
           </div>
@@ -668,7 +679,7 @@ function PalletizeContent() {
             return (
               <section
                 key={idx}
-                className="rounded-xl border border-amber-200/70 bg-amber-50/20 p-4 dark:border-amber-900/40 dark:bg-amber-950/15 space-y-4"
+                className="rounded-xl border-2 border-amber-300/90 bg-amber-50/25 p-4 dark:border-amber-700/70 dark:bg-amber-950/20 space-y-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Batch #{idx + 1}</p>
@@ -761,7 +772,7 @@ function PalletizeContent() {
                       inputMode="decimal"
                       value={k.grossKg}
                       onChange={(e) => setKandangGross(idx, e.target.value)}
-                      className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-right tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                      className={kandangFieldInputClass}
                     />
                   </div>
                   <div className="w-28">
@@ -771,7 +782,7 @@ function PalletizeContent() {
                       inputMode="decimal"
                       value={k.tareKg}
                       onChange={(e) => setKandangTare(idx, e.target.value)}
-                      className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm text-right tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                      className={kandangFieldInputClass}
                     />
                   </div>
                 </div>
@@ -810,7 +821,7 @@ function PalletizeContent() {
                       return (
                         <div
                           key={log.id}
-                          className="flex flex-wrap items-center gap-2 rounded-md border border-gray-200 px-2 py-2 text-xs dark:border-gray-700 bg-white dark:bg-dark-card"
+                          className="flex flex-wrap items-center gap-2 rounded-md border-2 border-amber-200/70 bg-white px-2.5 py-2 text-xs dark:border-amber-800/50 dark:bg-dark-card"
                         >
                           <span className="flex-1 min-w-[160px]">
                             Basket #{log.basketNo} — {log.fishSkuCode} (net {fmtKg(log.netWeight)} kg
@@ -832,7 +843,7 @@ function PalletizeContent() {
                               placeholder={noRemaining ? "—" : "0"}
                               disabled={noRemaining}
                               onChange={(e) => setKandangKg(idx, log.id, e.target.value)}
-                              className="w-24 rounded border border-gray-300 px-2 py-1 text-right tabular-nums disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-gray-600 dark:bg-dark-card dark:text-gray-100 dark:disabled:bg-gray-800"
+                              className={kandangAllocInputClass}
                             />
                           </label>
                           {noRemaining && (

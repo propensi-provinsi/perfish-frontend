@@ -4,9 +4,16 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import RejectBatchLegend from "@/components/cold-storage/RejectBatchLegend";
+import { isInboundRejectBatchRow, rejectBatchRowClass } from "@/lib/batch-quality";
 import Button from "@/components/ui/Button";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks, mergeColdStorageBatches } from "@/lib/coldstorage-api";
 import { alertErrorClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
@@ -19,7 +26,7 @@ function eligibleForMerge(row: ColdStorageStockRow) {
 }
 
 function isRejectBatch(row: ColdStorageStockRow) {
-  return row.qualityGrade === "REJECT";
+  return isInboundRejectBatchRow(row);
 }
 
 function BatchMergePageInner() {
@@ -87,9 +94,39 @@ function BatchMergePageInner() {
   }, [coldStorages, lockedWarehouse, warehouseId]);
 
   const mergeableRows = useMemo(() => rows.filter(eligibleForMerge), [rows]);
+  const mergePagination = useClientTablePagination(mergeableRows, {
+    resetDeps: [warehouseId],
+  });
+
+  const survivorRow = useMemo(
+    () => (survivorId === "" ? undefined : mergeableRows.find((r) => r.batchId === survivorId)),
+    [mergeableRows, survivorId]
+  );
+
+  function donorCompatibleWithSurvivor(row: ColdStorageStockRow) {
+    if (!survivorRow) return true;
+    return isRejectBatch(row) === isRejectBatch(survivorRow);
+  }
+
+  function selectSurvivor(batchId: number) {
+    const row = mergeableRows.find((r) => r.batchId === batchId);
+    if (!row) return;
+    setSurvivorId(batchId);
+    setDonorIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (id === batchId) continue;
+        const d = mergeableRows.find((r) => r.batchId === id);
+        if (d && isRejectBatch(d) === isRejectBatch(row)) next.add(id);
+      }
+      return next;
+    });
+  }
 
   function toggleDonor(id: number) {
     if (id === survivorId) return;
+    const row = mergeableRows.find((r) => r.batchId === id);
+    if (row && survivorRow && !donorCompatibleWithSurvivor(row)) return;
     setDonorIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -178,6 +215,13 @@ function BatchMergePageInner() {
       {warehouseId !== "" && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch AVAILABLE</h2>
+          <TableListPaginationToolbar
+            totalCount={mergePagination.totalCount}
+            itemLabel="batch"
+            pageSize={mergePagination.pageSize}
+            onPageSizeChange={mergePagination.setPageSize}
+          />
+          <RejectBatchLegend className="mb-3" />
           <div className="overflow-x-auto">
             <table className="min-w-full text-[13px]">
               <thead>
@@ -192,30 +236,32 @@ function BatchMergePageInner() {
                 </tr>
               </thead>
               <tbody>
-                {mergeableRows.map((r) => (
+                {mergePagination.visibleItems.map((r) => {
+                  const donorDisabled =
+                    survivorId === r.batchId ||
+                    (survivorRow != null && !donorCompatibleWithSurvivor(r));
+                  return (
                   <tr
                     key={r.batchId}
-                    className={`border-b border-gray-100 dark:border-gray-800 ${isRejectBatch(r) ? "bg-red-50/50 dark:bg-red-950/20" : ""}`}
+                    className={`border-b border-gray-100 dark:border-gray-800 ${isRejectBatch(r) ? rejectBatchRowClass : ""}`}
                   >
                     <td className="px-2 py-2">
                       <input
                         type="radio"
                         name="survivor"
                         checked={survivorId === r.batchId}
-                        onChange={() => {
-                          setSurvivorId(r.batchId);
-                          setDonorIds((prev) => {
-                            const next = new Set(prev);
-                            next.delete(r.batchId);
-                            return next;
-                          });
-                        }}
+                        onChange={() => selectSurvivor(r.batchId)}
                       />
                     </td>
                     <td className="px-2 py-2">
                       <input
                         type="checkbox"
-                        disabled={survivorId === r.batchId}
+                        disabled={donorDisabled}
+                        title={
+                          donorDisabled && survivorRow && survivorId !== r.batchId
+                            ? "Donor harus sama jenisnya dengan batch penerima (reject atau non-reject)"
+                            : undefined
+                        }
                         checked={donorIds.has(r.batchId)}
                         onChange={() => toggleDonor(r.batchId)}
                       />
@@ -237,13 +283,21 @@ function BatchMergePageInner() {
                       {r.jumlahStok ?? 0} {r.unit ?? ""}
                     </td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
+          </div>
+          <TableListPaginationFooter
+            page={mergePagination.page}
+            totalPages={mergePagination.totalPages}
+            totalCount={mergePagination.totalCount}
+            onPageChange={mergePagination.setPage}
+            show={mergePagination.totalCount > 0}
+          />
             {mergeableRows.length === 0 && (
               <p className="py-4 text-sm text-gray-500 dark:text-gray-400">Tidak ada batch AVAILABLE di gudang ini.</p>
             )}
-          </div>
           <Button
             type="button"
             onClick={() => void handleMerge()}
@@ -307,12 +361,12 @@ function BatchMergePageInner() {
 
 export default function BatchMergePage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <Suspense fallback={<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat…</div>}>
           <BatchMergePageInner />
         </Suspense>
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

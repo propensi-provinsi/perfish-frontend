@@ -22,7 +22,9 @@ import {
   rejectInbound,
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
+import { canApproveInboundReceipt, INBOUND_RECEIPT_READ_ROLES } from "@/lib/rbac";
 import { QRCodeSVG } from "qrcode.react";
+import { printBatchQrCodes } from "@/lib/print-batch-qr";
 
 function fmtKg(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? Number(v) : v;
@@ -39,13 +41,11 @@ function toNumKg(v: number | string | null | undefined): number {
 
 function fmtGradeLabel(code: string | null | undefined): string {
   if (!code) return "—";
-  if (code === "REJECT") return "Reject";
   return code;
 }
 
 function isInboundRejectBatch(b: PalletizationBatch): boolean {
-  if (b.inboundRejectBatch === true) return true;
-  return b.qualityGrade === "REJECT";
+  return b.inboundRejectBatch === true;
 }
 
 function formatDateDdMmYyyy(isoDate: string): string {
@@ -57,7 +57,7 @@ function formatDateDdMmYyyy(isoDate: string): string {
 
 export default function InboundSummaryPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "WAREHOUSE_STAFF", "QC_SPECIALIST", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={INBOUND_RECEIPT_READ_ROLES}>
       <AppShell>
         <InboundSummaryContent />
       </AppShell>
@@ -158,7 +158,7 @@ function InboundSummaryContent() {
   const isPending = receipt.status === "PENDING";
   const canAct =
     isPending &&
-    (user?.role === "WAREHOUSE_ADMIN" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN");
+    canApproveInboundReceipt(user?.role);
 
   return (
     <div className="space-y-6">
@@ -308,7 +308,11 @@ function InboundSummaryContent() {
       {batches.length > 0 && (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Batch ({batches.length})</h2>
-          <button type="button" onClick={() => window.print()} className={actionBtn("primary", "sm")}>
+          <button
+            type="button"
+            onClick={() => printBatchQrCodes(batches.map((b) => ({ batchNumber: b.batchNumber })))}
+            className={actionBtn("primary", "sm")}
+          >
             Cetak QR Code
           </button>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

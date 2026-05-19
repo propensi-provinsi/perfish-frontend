@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Fragment, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import Link from "next/link";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
@@ -27,6 +27,19 @@ import {
   submitForApproval,
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
+import {
+  canApproveInboundReceipt,
+  canCreateInboundReceipt,
+  canManagePalletization,
+  canManageSizingGrading,
+  canReadDashboardPenerimaan,
+  DASHBOARD_PENERIMAAN_READ_ROLES,
+} from "@/lib/rbac";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 
 type MasterRejectReasonResponse = {
   rejectReasonId: number;
@@ -37,7 +50,7 @@ type MasterRejectReasonResponse = {
 
 export default function InboundIkanPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_ADMIN", "WAREHOUSE_STAFF", "QC_SPECIALIST", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={DASHBOARD_PENERIMAAN_READ_ROLES}>
       <AppShell>
         <InboundIkanContent />
       </AppShell>
@@ -127,7 +140,6 @@ function InboundIkanContent() {
   const [filterSupplierId, setFilterSupplierId] = useState("");
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
-
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
   const fetchInboundFish = useCallback(async () => {
@@ -160,6 +172,10 @@ function InboundIkanContent() {
     setInboundRows(allRows.filter((r) => r.status === filterStatus));
   }, [allRows, filterStatus]);
 
+  const pagination = useClientTablePagination(inboundRows, {
+    resetDeps: [filterStatus, filterSupplierId, filterStartDate, filterEndDate, allRows.length],
+  });
+
   useEffect(() => { queueMicrotask(() => { void fetchInboundFish(); }); }, [fetchInboundFish]);
   useEffect(() => {
     (async () => {
@@ -178,16 +194,13 @@ function InboundIkanContent() {
   const approvedCount = allRows.filter((r) => r.status === "APPROVED").length;
   const rejectedCount = allRows.filter((r) => r.status === "REJECTED").length;
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [qcRow, setQcRow] = useState<InboundFishRow | null>(null);
-  const canCreateReceiving = user?.role === "WAREHOUSE_STAFF" || user?.role === "SUPERADMIN";
-  const canWeighPallet = user?.role === "WAREHOUSE_STAFF" || user?.role === "SUPERADMIN";
-  const canQc = user?.role === "QC_SPECIALIST" || user?.role === "SUPERADMIN";
-  const canApproveReject = user?.role === "WAREHOUSE_ADMIN" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
-
-  const toggleExpanded = (id: string) => {
-    setExpandedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  };
+  const canCreateReceiving = canCreateInboundReceipt(user?.role);
+  const canPalletize = canManagePalletization(user?.role);
+  const canSizingGrading = canManageSizingGrading(user?.role);
+  const canQcLegacy = user?.role === "QC_SPECIALIST" || user?.role === "SUPERADMIN";
+  const canApproveReject = canApproveInboundReceipt(user?.role);
+  const canViewDetail = canReadDashboardPenerimaan(user?.role);
 
   function qcIsDone(row: InboundFishRow): boolean {
     return row.lines.length > 0 && row.lines.every((l) => l.qcGradeId != null);
@@ -282,15 +295,23 @@ function InboundIkanContent() {
       </section>
 
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
-        <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Penerimaan Ikan</h2>
           {loadingReceivings && <span className="text-xs text-gray-500 dark:text-gray-400">Memuat…</span>}
+        </div>
+        <div className="px-4 pb-2">
+          <TableListPaginationToolbar
+            totalCount={pagination.totalCount}
+            itemLabel="penerimaan"
+            pageSize={pagination.pageSize}
+            onPageSizeChange={pagination.setPageSize}
+            className="flex flex-wrap items-center justify-between gap-2 text-sm"
+          />
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/5 text-left text-gray-600 dark:text-gray-400">
-                <th className="px-2 py-3 w-10 font-medium" aria-label="Expand" />
                 <th className="px-4 py-3 font-medium">Kode Penerimaan</th>
                 <th className="px-4 py-3 font-medium">Kode PO</th>
                 <th className="px-4 py-3 font-medium">Supplier</th>
@@ -302,19 +323,12 @@ function InboundIkanContent() {
             </thead>
             <tbody>
               {inboundRows.length === 0 && !loadingReceivings && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Belum ada data penerimaan.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Belum ada data penerimaan.</td></tr>
               )}
-              {inboundRows.map((row) => {
-                const open = expandedIds.has(row.id);
+              {pagination.visibleItems.map((row) => {
                 const done = qcIsDone(row);
                 return (
-                  <Fragment key={row.id}>
-                    <tr className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5">
-                      <td className="px-2 py-3 align-middle">
-                        <button type="button" onClick={() => toggleExpanded(row.id)} className="rounded p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/10" aria-expanded={open}>
-                          <span className="inline-block w-4 text-center text-xs">{open ? "▼" : "▶"}</span>
-                        </button>
-                      </td>
+                    <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5">
                       <td className="px-4 py-3 font-mono text-xs">{row.batchCode}</td>
                       <td className="px-4 py-3 text-xs">{row.poCode ?? "—"}</td>
                       <td className="px-4 py-3">{row.supplierName}</td>
@@ -323,36 +337,28 @@ function InboundIkanContent() {
                       <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
                       <td className="px-4 py-3">
                         <div className="inline-flex gap-2 flex-wrap">
-                          {canWeighPallet && row.status === "DRAFT" && (
+                          {canSizingGrading && (row.status === "DRAFT" || row.status === "WEIGHING") && (
                             <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                              Mulai Sizing &amp; Grading
+                              {row.status === "DRAFT" ? "Mulai Sizing & Grading" : "Lanjutkan Sizing & Grading"}
                             </Link>
                           )}
-                          {canWeighPallet && row.status === "WEIGHING" && (
-                            <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                              Lanjutkan Sizing &amp; Grading
-                            </Link>
-                          )}
-                          {canQc && row.status === "QC_CHECK" && !done && (
+                          {canQcLegacy && row.status === "QC_CHECK" && !done && (
                             <button type="button" onClick={() => setQcRow(row)} className={actionBtn("warning", "xs")}>
                               QC Per Baris (Legacy)
                             </button>
                           )}
-                          {canWeighPallet && row.status === "QC_CHECK" && done && (
-                            <>
-                              <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                                Lanjutkan Sizing &amp; Grading
-                              </Link>
-                              <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
-                                Lanjut Paletisasi
-                              </Link>
-                            </>
+                          {canSizingGrading && row.status === "QC_CHECK" && done && (
+                            <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
+                              Lanjutkan Sizing &amp; Grading
+                            </Link>
                           )}
-                          {canWeighPallet && row.status === "IN_PROGRESS" && (
+                          {canPalletize && (row.status === "QC_CHECK" && done || row.status === "IN_PROGRESS") && (
                             <>
-                              <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
-                                Lanjutkan Sizing &amp; Grading
-                              </Link>
+                              {canSizingGrading && row.status === "IN_PROGRESS" && (
+                                <Link href={`/inbound-ikan/tally/${row.id}`} className={actionBtn("info", "xs")}>
+                                  Lanjutkan Sizing &amp; Grading
+                                </Link>
+                              )}
                               <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
                                 Lanjut Paletisasi
                               </Link>
@@ -371,7 +377,14 @@ function InboundIkanContent() {
                               Approval
                             </Link>
                           )}
-                          {(row.status === "APPROVED" || row.status === "REJECTED") && (
+                          {canViewDetail &&
+                            (row.status === "APPROVED" ||
+                              row.status === "REJECTED" ||
+                              (row.status === "PENDING" && !canApproveReject) ||
+                              row.status === "DRAFT" ||
+                              row.status === "WEIGHING" ||
+                              row.status === "QC_CHECK" ||
+                              row.status === "IN_PROGRESS") && (
                             <Link href={`/inbound-ikan/summary/${row.id}`} className={actionBtn("ghost", "xs")}>
                               Lihat Detail
                             </Link>
@@ -379,52 +392,20 @@ function InboundIkanContent() {
                         </div>
                       </td>
                     </tr>
-                    {open && (
-                      <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-white/[0.03]">
-                        <td colSpan={8} className="px-4 py-3">
-                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                            Rincian Ikan ({new Set(row.lines.map((l) => l.speciesId)).size} Spesies)
-                          </p>
-                          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                            <table className="min-w-full text-xs">
-                              <thead>
-                                <tr className="bg-white dark:bg-dark-card text-left text-gray-600 dark:text-gray-400">
-                                  <th className="px-3 py-2 font-medium">SKU</th>
-                                  <th className="px-3 py-2 font-medium">Jenis Ikan</th>
-                                  <th className="px-3 py-2 font-medium">Size</th>
-                                  <th className="px-3 py-2 font-medium">Bentuk</th>
-                                  <th className="px-3 py-2 font-medium">Grade</th>
-                                  <th className="px-3 py-2 font-medium">Berat QC (kg)</th>
-                                  <th className="px-3 py-2 font-medium">Ditolak (kg)</th>
-                                  <th className="px-3 py-2 font-medium">Diterima (kg)</th>
-                                  <th className="px-3 py-2 font-medium">Suhu (°C)</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {row.lines.map((ln) => (
-                                  <tr key={ln.id} className="border-t border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100">
-                                    <td className="px-3 py-2 font-mono text-[11px]">{ln.resolvedSkuCode ?? "—"}</td>
-                                    <td className="px-3 py-2">{ln.speciesName}</td>
-                                    <td className="px-3 py-2">{ln.size}</td>
-                                    <td className="px-3 py-2">{ln.bentuk}</td>
-                                    <td className="px-3 py-2">{ln.qcGrade ?? "—"}</td>
-                                    <td className="px-3 py-2 tabular-nums">{ln.qcTotalBeratKg != null ? formatQuantityKgId(ln.qcTotalBeratKg) : "—"}</td>
-                                    <td className="px-3 py-2 tabular-nums text-red-600">{ln.rejectedWeight != null ? formatQuantityKgId(ln.rejectedWeight) : "—"}</td>
-                                    <td className="px-3 py-2 tabular-nums font-semibold text-green-700">{ln.acceptedWeightKg != null ? formatQuantityKgId(ln.acceptedWeightKg) : "—"}</td>
-                                    <td className="px-3 py-2 tabular-nums">{ln.qcSuhuPenerimaan != null ? String(ln.qcSuhuPenerimaan) : "—"}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
                 );
               })}
             </tbody>
           </table>
+        </div>
+        <div className="px-4 pb-4">
+          <TableListPaginationFooter
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalCount={pagination.totalCount}
+            onPageChange={pagination.setPage}
+            disabled={loadingReceivings}
+            show={!loadingReceivings && pagination.totalCount > 0}
+          />
         </div>
       </section>
 

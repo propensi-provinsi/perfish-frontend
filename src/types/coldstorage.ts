@@ -13,7 +13,7 @@ export type UnitType = "KG" | "TON";
 
 export type BatchStatus = "QUARANTINE" | "AVAILABLE" | "EXPIRED" | "BLOCKED";
 
-export type QualityGrade = "PREMIUM" | "STANDARD" | "LOW" | "REJECT";
+export type QualityGrade = "A" | "B" | "C" | "REJECT";
 
 /** Batch di loading bay (belum ada lokasi rack; API assignable-batches). */
 export interface LoadingBayBatchRow {
@@ -31,6 +31,8 @@ export interface LoadingBayBatchRow {
   umurSimpanDays?: number | null;
   umurSimpanBulan?: number | null;
   kategoriStatus?: StockCategoryStatus | null;
+  qualityGrade?: QualityGrade | null;
+  inboundRejectBatch?: boolean | null;
 }
 
 // ── E05-PBI-01: Assign Location ───────────────────────────────────
@@ -152,6 +154,7 @@ export interface ColdStorageStockRow {
   kategoriStatus: StockCategoryStatus;
   batchStatus: BatchStatus | null;
   qualityGrade: QualityGrade | null;
+  inboundRejectBatch?: boolean | null;
   jumlahStok: number | string | null;
   unit: UnitType | null;
   expirationDate: string | null;
@@ -382,4 +385,7 @@ export interface BatchDetailResponse {
   receptionTempC?: number | string | null;
   /** Suhu tampilan: terakhir stock opname, atau suhu penerimaan. */
   storageTempC?: number | string | null;
+  /** SKU dari inbound (batch atau weighing log). */
+  fishSkuCode?: string | null;
+  gradeLabel?: string | null;
 }

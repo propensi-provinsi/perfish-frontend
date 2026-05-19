@@ -76,10 +76,13 @@ export function ViewSupplierAuditModal({
   supplier,
   onClose,
   onSaved,
+  readOnly = false,
 }: {
   supplier: SupplierData;
   onClose: () => void;
   onSaved?: () => void;
+  /** true = hanya lihat (Kepala Cabang); false = boleh edit (Staff SBB). */
+  readOnly?: boolean;
 }) {
   const [audit, setAudit] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -263,7 +266,7 @@ export function ViewSupplierAuditModal({
               <button onClick={onClose} className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
                 Tutup
               </button>
-              {audit && (
+              {audit && !readOnly && (
                 <button onClick={() => setEditing(true)} className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-hover inline-flex items-center gap-1.5">
                   <HiOutlinePencilSquare className="h-4 w-4" /> Edit Audit
                 </button>

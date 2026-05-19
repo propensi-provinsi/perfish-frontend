@@ -16,6 +16,12 @@ import {
 } from "@/lib/inbound-api";
 import { useAuth } from "@/context/AuthContext";
 import { actionBtn } from "@/lib/ui-action";
+import { canManagePurchaseOrder, PURCHASE_ORDER_ROLES } from "@/lib/rbac";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 
 function fmtKg(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? Number(v) : v;
@@ -25,7 +31,7 @@ function fmtKg(v: number | string | null | undefined): string {
 
 export default function PurchaseOrdersPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "WAREHOUSE_STAFF", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={PURCHASE_ORDER_ROLES}>
       <AppShell>
         <PurchaseOrdersContent />
       </AppShell>
@@ -54,7 +60,7 @@ function formatDate(iso: string): string {
 
 function PurchaseOrdersContent() {
   const { user } = useAuth();
-  const canManagePo = user?.role === "SUPERADMIN" || user?.role === "SBB_STAFF" || user?.role === "KEPALA_CABANG";
+  const canManagePo = canManagePurchaseOrder(user?.role);
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -63,6 +69,7 @@ function PurchaseOrdersContent() {
   const [lockingPoId, setLockingPoId] = useState<number | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set());
+  const pagination = useClientTablePagination(pos);
 
   useEffect(() => {
     if (!toast) return;
@@ -119,11 +126,18 @@ function PurchaseOrdersContent() {
       )}
 
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
-        <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar PO</h2>
           {loading && <span className="text-xs text-gray-500 dark:text-gray-400">Memuat…</span>}
         </div>
-        <div className="overflow-x-auto">
+        <TableListPaginationToolbar
+          totalCount={pagination.totalCount}
+          itemLabel="PO"
+          pageSize={pagination.pageSize}
+          onPageSizeChange={pagination.setPageSize}
+          className="px-4 mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+        />
+        <div className="overflow-x-auto px-4">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/5 text-left text-gray-600 dark:text-gray-400">
@@ -140,7 +154,7 @@ function PurchaseOrdersContent() {
               {pos.length === 0 && !loading && (
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Belum ada Purchase Order.</td></tr>
               )}
-              {pos.map((po) => {
+              {pagination.visibleItems.map((po) => {
                 const open = expandedIds.has(po.poId);
                 return (
                   <PoTableRow
@@ -184,6 +198,15 @@ function PurchaseOrdersContent() {
             </tbody>
           </table>
         </div>
+        <TableListPaginationFooter
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          onPageChange={pagination.setPage}
+          disabled={loading}
+          show={!loading && pagination.totalCount > 0}
+          className="px-4 pb-4 mt-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+        />
       </section>
 
       {showAdd && (

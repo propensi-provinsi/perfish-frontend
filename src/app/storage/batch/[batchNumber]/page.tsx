@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import AppShell from "@/components/layout/AppShell";
 import BatchDetailView from "@/components/cold-storage/BatchDetailView";
 
@@ -10,10 +10,10 @@ export default function BatchDetailPage() {
   const batchNumber = decodeURIComponent(params.batchNumber ?? "");
 
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <BatchDetailView batchNumber={batchNumber} />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

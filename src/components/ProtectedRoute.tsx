@@ -8,9 +8,11 @@ import type { UserRole } from "@/types";
 interface Props {
   children: ReactNode;
   allowedRoles?: UserRole[];
+  /** Jika diisi, role harus lolos pengecekan ini (setelah autentikasi). Superadmin selalu lolos. */
+  authorize?: (role: UserRole) => boolean;
 }
 
-export default function ProtectedRoute({ children, allowedRoles }: Props) {
+export default function ProtectedRoute({ children, allowedRoles, authorize }: Props) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
@@ -30,7 +32,12 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
 
   if (!user) return null;
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  const role = user.role;
+  const superAdmin = role === "SUPERADMIN";
+  const deniedByList = allowedRoles && !allowedRoles.includes(role) && !superAdmin;
+  const deniedByAuthz = authorize && !authorize(role) && !superAdmin;
+
+  if (deniedByList || deniedByAuthz) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
         <h1 className="text-6xl font-bold text-red">403</h1>

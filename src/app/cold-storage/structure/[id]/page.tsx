@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import Button from "@/components/ui/Button";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
 import { getColdStorageStructureDetail } from "@/lib/coldstorage-api";
@@ -220,10 +220,10 @@ function ColdStorageStructureDetailInner() {
 
 export default function ColdStorageStructureDetailPage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <ColdStorageStructureDetailInner />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

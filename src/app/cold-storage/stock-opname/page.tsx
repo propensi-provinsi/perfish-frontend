@@ -4,17 +4,23 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import Button from "@/components/ui/Button";
 import { getColdStorages } from "@/lib/expiry";
 import {
   createStockOpnameSession,
+  deleteStockOpnameSession,
   finalizeStockOpnameSession,
   getStockOpnameSession,
   listStockOpnameSessions,
   updateStockOpnameLines,
 } from "@/lib/coldstorage-api";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import {
   alertErrorClass,
   alertSuccessClass,
@@ -65,6 +71,18 @@ function shrinkPreviewPct(system: number | string, countedStr: string) {
   return `${(((sys - c) / sys) * 100).toFixed(2)}%`;
 }
 
+const OPNAME_STATUS_STYLE: Record<string, string> = {
+  DRAFT: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  POSTED: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+};
+
+function StockOpnameStatusBadge({ status }: { status: string }) {
+  const cls = OPNAME_STATUS_STYLE[status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300";
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>{status}</span>
+  );
+}
+
 function StockOpnamePageInner() {
   const searchParams = useSearchParams();
   const presetColdStorageId = searchParams.get("coldStorageId");
@@ -82,6 +100,7 @@ function StockOpnamePageInner() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
 
   useEffect(() => {
     if (lockedWarehouse) {
@@ -255,6 +274,41 @@ function StockOpnamePageInner() {
   };
 
   const sessionRows = useMemo(() => sessions, [sessions]);
+  const sessionsPagination = useClientTablePagination(sessionRows, {
+    resetDeps: [coldStorageId],
+  });
+
+  const activeLines = activeSession?.lines ?? [];
+  const linesPagination = useClientTablePagination(activeLines, {
+    resetDeps: [activeSession?.sessionId],
+  });
+
+  const handleDeleteSession = async (sessionId: number) => {
+    if (!window.confirm("Hapus draft stock opname ini?")) {
+      return;
+    }
+    setDeletingSessionId(sessionId);
+    setError(null);
+    setInfo(null);
+    try {
+      await deleteStockOpnameSession(sessionId);
+      if (activeSession?.sessionId === sessionId) {
+        setActiveSession(null);
+        setCounts({});
+        setTemps({});
+        setSessionEditMode(false);
+      }
+      await loadSessions();
+      setInfo("Sesi stock opname dihapus.");
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Gagal menghapus sesi");
+      setError(String(msg));
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -340,7 +394,14 @@ function StockOpnamePageInner() {
         ) : sessionRows.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">Belum ada sesi stock opname.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            <TableListPaginationToolbar
+              totalCount={sessionsPagination.totalCount}
+              itemLabel="sesi"
+              pageSize={sessionsPagination.pageSize}
+              onPageSizeChange={sessionsPagination.setPageSize}
+            />
+            <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase text-gray-500 dark:text-gray-400">
@@ -353,11 +414,13 @@ function StockOpnamePageInner() {
                 </tr>
               </thead>
               <tbody>
-                {sessionRows.map((s) => (
+                {sessionsPagination.visibleItems.map((s) => (
                   <tr key={s.sessionId} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="py-2 pr-3 font-mono text-xs text-gray-800 dark:text-gray-100">{s.sessionId}</td>
                     <td className="py-2 pr-3 tabular-nums text-gray-800 dark:text-gray-100">{formatPeriodDisplay(s.periodYyyymm)}</td>
-                    <td className="py-2 pr-3 text-gray-800 dark:text-gray-100">{s.status}</td>
+                    <td className="py-2 pr-3">
+                      <StockOpnameStatusBadge status={s.status} />
+                    </td>
                     <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-200">
                       {s.postedAt ? new Date(s.postedAt).toLocaleString() : "—"}
                       {s.postedBy ? ` · ${s.postedBy}` : ""}
@@ -384,13 +447,33 @@ function StockOpnamePageInner() {
                             Edit
                           </Button>
                         ) : null}
+                        {s.status === "DRAFT" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                            disabled={deletingSessionId === s.sessionId || busy}
+                            onClick={() => void handleDeleteSession(s.sessionId)}
+                          >
+                            {deletingSessionId === s.sessionId ? "…" : "Hapus"}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <TableListPaginationFooter
+              page={sessionsPagination.page}
+              totalPages={sessionsPagination.totalPages}
+              totalCount={sessionsPagination.totalCount}
+              onPageChange={sessionsPagination.setPage}
+              show={sessionsPagination.totalCount > 0}
+            />
+          </>
         )}
       </section>
 
@@ -398,26 +481,15 @@ function StockOpnamePageInner() {
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Sesi #{activeSession.sessionId}{" "}
-                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({activeSession.status})</span>
+              <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+                <span>Sesi #{activeSession.sessionId}</span>
+                <StockOpnameStatusBadge status={activeSession.status} />
               </h2>
               {activeSession.notes ? (
                 <p className="text-xs text-gray-500 dark:text-gray-400">{activeSession.notes}</p>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              {isPosted && !sessionEditMode ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="border-cyan text-cyan hover:bg-cyan/10 dark:border-cyan-400 dark:text-cyan-300"
-                  onClick={() => setSessionEditMode(true)}
-                >
-                  Edit
-                </Button>
-              ) : null}
               {canEditInputs ? (
                 <>
                   <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveLines()} disabled={busy}>
@@ -439,6 +511,12 @@ function StockOpnamePageInner() {
             </div>
           </div>
 
+          <TableListPaginationToolbar
+            totalCount={linesPagination.totalCount}
+            itemLabel="batch"
+            pageSize={linesPagination.pageSize}
+            onPageSizeChange={linesPagination.setPageSize}
+          />
           <div className="overflow-x-auto">
             <table className="w-full table-fixed text-[13px]">
               <thead>
@@ -455,7 +533,7 @@ function StockOpnamePageInner() {
                 </tr>
               </thead>
               <tbody>
-                {(activeSession.lines ?? []).map((line: StockOpnameLineResponse) => {
+                {linesPagination.visibleItems.map((line: StockOpnameLineResponse) => {
                   const target = line.targetStorageTempC;
                   const ts = canEditInputs
                     ? tempStatusPreview(target, temps[line.lineId] ?? "")
@@ -539,6 +617,13 @@ function StockOpnamePageInner() {
               </tbody>
             </table>
           </div>
+          <TableListPaginationFooter
+            page={linesPagination.page}
+            totalPages={linesPagination.totalPages}
+            totalCount={linesPagination.totalCount}
+            onPageChange={linesPagination.setPage}
+            show={linesPagination.totalCount > 0}
+          />
         </section>
       )}
     </div>
@@ -547,12 +632,12 @@ function StockOpnamePageInner() {
 
 export default function StockOpnamePage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <Suspense fallback={<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Memuat…</div>}>
           <StockOpnamePageInner />
         </Suspense>
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

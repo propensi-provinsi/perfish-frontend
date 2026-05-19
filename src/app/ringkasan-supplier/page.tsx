@@ -16,6 +16,18 @@ import {
   inboundStatusDisplayLabel,
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
+import {
+  canAddSupplierFromRingkasan,
+  canApproveSupplier,
+  canManageSupplierAudit,
+  canViewSupplierAudit,
+  RINGKASAN_SUPPLIER_ROLES,
+} from "@/lib/rbac";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 
 type InboundReceipt = {
   id: string;
@@ -66,7 +78,7 @@ function uniqueMonthKeysDesc(receipts: InboundReceipt[]): string[] {
 
 export default function RingkasanSupplierPage() {
   return (
-    <ProtectedRoute allowedRoles={["SBB_STAFF", "SUPERADMIN", "KEPALA_CABANG"]}>
+    <ProtectedRoute allowedRoles={RINGKASAN_SUPPLIER_ROLES}>
       <AppShell>
         <RingkasanSupplierContent />
       </AppShell>
@@ -97,8 +109,10 @@ function RingkasanSupplierContent() {
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const [toast, setToast] = useState<Toast>(null);
 
-  const canEditApproval = user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
-  const canAddSupplier = user?.role === "SBB_STAFF" || user?.role === "KEPALA_CABANG" || user?.role === "SUPERADMIN";
+  const canEditApproval = canApproveSupplier(user?.role);
+  const canAddSupplier = canAddSupplierFromRingkasan(user?.role);
+  const canEditAudit = canManageSupplierAudit(user?.role);
+  const canOpenAudit = canViewSupplierAudit(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -166,6 +180,10 @@ function RingkasanSupplierContent() {
     });
   }, [suppliers, inbounds]);
 
+  const pagination = useClientTablePagination(rows, {
+    resetDeps: [suppliers.length, inbounds.length],
+  });
+
   async function handleApprovalChange(supplier: SupplierData, next: MasterSupplierApprovalStatus) {
     const current = supplier.approvalStatus ?? "PENDING_APPROVAL";
     if (current === next) return;
@@ -230,10 +248,17 @@ function RingkasanSupplierContent() {
       </section>
 
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Supplier</h2>
           {loading && <span className="text-xs text-gray-500 dark:text-gray-400">Memuat…</span>}
         </div>
+        <TableListPaginationToolbar
+          totalCount={pagination.totalCount}
+          itemLabel="supplier"
+          pageSize={pagination.pageSize}
+          onPageSizeChange={pagination.setPageSize}
+          className="px-4 mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+        />
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -257,7 +282,7 @@ function RingkasanSupplierContent() {
                   </td>
                 </tr>
               )}
-              {rows.map(({ supplier, total, receipts }) => {
+              {pagination.visibleItems.map(({ supplier, total, receipts }) => {
                 const open = expandedId === supplier.id;
                 const months = uniqueMonthKeysDesc(receipts);
                 const filterMk = monthFilterBySupplier[supplier.id] ?? "";
@@ -324,8 +349,8 @@ function RingkasanSupplierContent() {
                         {formatDateDdMmYyyy(supplier.createdAt.slice(0, 10))}
                       </td>
                       <td className="px-4 py-3">
-                        {supplier.auditId ? (
-                          <button type="button" onClick={() => setAuditSupplier(supplier)} className={actionBtn("neutral", "xs")} title="Lihat / edit audit supplier">
+                        {supplier.auditId && canOpenAudit ? (
+                          <button type="button" onClick={() => setAuditSupplier(supplier)} className={actionBtn("neutral", "xs")} title={canEditAudit ? "Lihat / edit audit supplier" : "Lihat audit supplier"}>
                             <HiOutlineDocumentMagnifyingGlass className="h-4 w-4" />
                             Audit
                           </button>
@@ -453,6 +478,15 @@ function RingkasanSupplierContent() {
             </tbody>
           </table>
         </div>
+        <TableListPaginationFooter
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          onPageChange={pagination.setPage}
+          disabled={loading}
+          show={!loading && pagination.totalCount > 0}
+          className="px-4 pb-4 mt-4 flex flex-wrap items-center justify-between gap-2 text-sm"
+        />
       </section>
 
       {showAddSupplier && (
@@ -476,6 +510,7 @@ function RingkasanSupplierContent() {
       {auditSupplier && (
         <ViewSupplierAuditModal
           supplier={auditSupplier}
+          readOnly={!canEditAudit}
           onClose={() => setAuditSupplier(null)}
           onSaved={() => {
             setToast({ type: "success", message: "Audit berhasil diperbarui." });
