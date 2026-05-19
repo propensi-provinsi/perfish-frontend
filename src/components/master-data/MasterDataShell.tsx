@@ -61,6 +61,8 @@ export interface EntityConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onUpdate?: (id: number | string, data: Record<string, any>) => Promise<void>;
   onDelete?: (id: number | string) => Promise<void>;
+  canCreate?: boolean;
+  createDisabledReason?: string;
 }
 
 interface Props {
@@ -446,9 +448,13 @@ export default function MasterDataShell({ title, subtitle, entities }: Props) {
           </button>
 
           <button
-            onClick={entity.formFields ? openCreate : undefined}
-            disabled={!!entity.formFields && crudDisabled}
-            title={entity.formFields && crudDisabled ? "Nonaktif saat menggunakan data contoh" : undefined}
+            onClick={entity.formFields && entity.canCreate !== false ? openCreate : undefined}
+            disabled={!!entity.formFields && (crudDisabled || entity.canCreate === false)}
+            title={
+              entity.formFields && crudDisabled
+                ? "Nonaktif saat menggunakan data contoh"
+                : entity.createDisabledReason
+            }
             className="inline-flex items-center gap-1.5 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white
               hover:bg-cyan-hover active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >

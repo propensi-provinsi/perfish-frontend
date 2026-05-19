@@ -138,7 +138,7 @@ function BatchMergePageInner() {
       <header>
         <h1 className="text-2xl font-bold text-navy dark:text-white">Gabung Batch (Kandang Macan)</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Menggabungkan dua batch yang memiliki species yang sama
+          Menggabungkan beberapa batch yang memiliki species dan gudang yang sama, dengan jejak lineage donor tetap tersimpan.
         </p>
       </header>
       <ColdStorageModuleNav />
@@ -251,6 +251,12 @@ function BatchMergePageInner() {
           >
             {busy ? "Menggabung..." : "Gabungkan"}
           </Button>
+          {survivorId !== "" && donorIds.size > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              Preview: batch penerima akan menyerap {donorIds.size} batch donor. Jika total melebihi kapasitas nominal
+              kandang macan 650 kg, sistem tetap menyimpan merge dengan warning.
+            </div>
+          )}
         </section>
       )}
 
@@ -287,6 +293,12 @@ function BatchMergePageInner() {
               </ul>
             </div>
           ) : null}
+          <Link
+            href={`/batch-activity/traceability`}
+            className="mt-4 inline-flex rounded-lg border border-green-300 bg-white px-3 py-2 text-xs font-semibold text-green-800 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100"
+          >
+            Lihat traceability batch survivor
+          </Link>
         </section>
       )}
     </div>

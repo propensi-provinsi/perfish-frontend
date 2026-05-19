@@ -15,16 +15,16 @@ export interface MasterHookResult<T, R> {
   update: (id: number, payload: R) => Promise<void>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isNetworkError = (err: any) => !err.response || err.code === "ERR_NETWORK";
+
 export function useMasterBatch(): MasterHookResult<MasterBatchResponse, MasterBatchRequest> {
   const [data, setData] = useState<MasterBatchResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMock, setIsMock] = useState(false);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isNetworkError = (err: any) => !err.response || err.code === "ERR_NETWORK";
-
-  const fetchBackendData = async () => {
+  const fetchBackendData = useCallback(async () => {
     try {
       const res = await masterBatchApi.getAll();
       setData(res.data.data);
@@ -44,15 +44,18 @@ export function useMasterBatch(): MasterHookResult<MasterBatchResponse, MasterBa
         throw err;
       }
     }
-  };
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     await fetchBackendData().finally(() => setLoading(false));
-  }, []);
+  }, [fetchBackendData]);
 
   useEffect(() => {
-    refresh();
+    const timeoutId = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [refresh]);
 
   const create = async (payload: MasterBatchRequest) => {

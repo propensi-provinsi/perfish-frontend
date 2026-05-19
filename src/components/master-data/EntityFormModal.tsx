@@ -17,6 +17,7 @@ export interface FormFieldDef {
   step?: number;
   /** For select / multiselect — pass dynamic options from hook data */
   options?: Array<{ value: string | number; label: string }>;
+  disabled?: boolean;
 }
 
 /* ── Props ────────────────────────────────────────────────────────── */
@@ -147,7 +148,8 @@ export default function EntityFormModal({
       "w-full rounded-lg border border-gray-300 dark:border-gray-600 " +
       "dark:bg-dark-section dark:text-gray-100 px-3 py-2 text-sm " +
       "focus:border-cyan focus:outline-none focus:ring-2 focus:ring-cyan/20 " +
-      "transition-colors placeholder:text-gray-400 dark:placeholder:text-gray-500";
+      "transition-colors placeholder:text-gray-400 dark:placeholder:text-gray-500 " +
+      "disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800";
 
     const val = values[f.key];
 
@@ -159,6 +161,7 @@ export default function EntityFormModal({
             value={(val as string) ?? ""}
             onChange={(e) => setValue(f.key, e.target.value)}
             placeholder={f.placeholder ?? `Masukkan ${f.label.toLowerCase()}…`}
+            disabled={f.disabled}
             className={baseClass}
           />
         );
@@ -173,6 +176,7 @@ export default function EntityFormModal({
             min={f.min}
             max={f.max}
             step={f.step ?? "any"}
+            disabled={f.disabled}
             className={baseClass}
           />
         );
@@ -182,6 +186,7 @@ export default function EntityFormModal({
           <select
             value={String(val ?? false)}
             onChange={(e) => setValue(f.key, e.target.value)}
+            disabled={f.disabled}
             className={baseClass}
           >
             <option value="true">Aktif</option>
@@ -194,6 +199,7 @@ export default function EntityFormModal({
           <select
             value={String(val ?? "")}
             onChange={(e) => setValue(f.key, e.target.value)}
+            disabled={f.disabled}
             className={baseClass}
           >
             <option value="">— Pilih {f.label} —</option>
@@ -224,7 +230,8 @@ export default function EntityFormModal({
                   type="checkbox"
                   checked={selected.includes(o.value)}
                   onChange={() => toggleMultiselect(f.key, o.value)}
-                  className="h-4 w-4 rounded border-gray-300 text-cyan focus:ring-cyan/30"
+                  disabled={f.disabled}
+                  className="h-4 w-4 rounded border-gray-300 text-cyan focus:ring-cyan/30 disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   {o.label}

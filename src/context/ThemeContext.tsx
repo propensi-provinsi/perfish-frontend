@@ -25,19 +25,18 @@ export function useTheme() {
 const THEME_KEY = "perfish-theme";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(THEME_KEY) === "dark";
+  });
 
-  /* Restore theme from localStorage on mount */
   useEffect(() => {
-    const stored = localStorage.getItem(THEME_KEY);
-    const prefersDark = stored === "dark";
-    setDark(prefersDark);
-    if (prefersDark) {
+    if (dark) {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
     }
-  }, []);
+  }, [dark]);
 
   function toggleTheme() {
     setDark((prev) => {

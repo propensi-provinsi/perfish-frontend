@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import TopHeader from "./TopHeader";
 
@@ -12,13 +12,10 @@ const COLLAPSED_KEY = "sidebar-collapsed";
 
 export default function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Restore collapsed state from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem(COLLAPSED_KEY);
-    if (stored === "true") setCollapsed(true);
-  }, []);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(COLLAPSED_KEY) === "true";
+  });
 
   function handleToggleCollapse() {
     setCollapsed((prev) => {

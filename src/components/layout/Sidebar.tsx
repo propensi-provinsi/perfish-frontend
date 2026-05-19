@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -82,10 +82,15 @@ export default function Sidebar({
     [menuItems, pathname]
   );
 
-  useEffect(() => {
-    const keys = collectAncestorKeysToExpand(menuItems, pathname);
-    setExpandedKeys((prev) => Array.from(new Set([...prev, ...keys])));
-  }, [pathname, menuItems]);
+  const forcedExpandedKeys = useMemo(
+    () => collectAncestorKeysToExpand(menuItems, pathname),
+    [menuItems, pathname]
+  );
+
+  const visibleExpandedKeys = useMemo(
+    () => Array.from(new Set([...expandedKeys, ...forcedExpandedKeys])),
+    [expandedKeys, forcedExpandedKeys]
+  );
 
   function toggleExpand(key: string) {
     setExpandedKeys((prev) =>
@@ -122,7 +127,7 @@ export default function Sidebar({
     }
 
     if (hasChildren) {
-      const expanded = expandedKeys.includes(item.key);
+      const expanded = visibleExpandedKeys.includes(item.key);
       const branchActive = branchContainsActiveKey(item.children!, bestActiveKey);
       return (
         <li key={item.key}>
