@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
 import { useAuth } from "@/context/AuthContext";
+import { ModalOverlay } from "@/components/inbound-fish/ModalPrimitives";
 import {
   STOCK_OUTBOUND_EXPORT_ROLES,
   STOCK_OUTBOUND_MANUAL_FEFO_ROLES,
@@ -14,6 +16,7 @@ import type {
   FefoBatchStock,
   SalesOrderOutboundSummary,
   Shipment,
+  ShipmentDocumentChecklist,
   ShipmentStatus,
   TransportModeOption,
 } from "@/types/stock-outbound";
@@ -73,13 +76,17 @@ export default function TransaksiFefoPage() {
   const [savingShipmentDetails, setSavingShipmentDetails] = useState(false);
   const [updatingShipmentId, setUpdatingShipmentId] = useState<number | null>(null);
   const [deallocatingId, setDeallocatingId] = useState<number | null>(null);
+  const [confirmShipment, setConfirmShipment] = useState<{ shipment: Shipment; next: ShipmentStatus } | null>(null);
+  const [shipmentDetail, setShipmentDetail] = useState<Shipment | null>(null);
+  const [shipmentDetailDocs, setShipmentDetailDocs] = useState<ShipmentDocumentChecklist | null>(null);
+  const [shipmentDetailLoading, setShipmentDetailLoading] = useState(false);
+  const [previewingShipmentDocId, setPreviewingShipmentDocId] = useState<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const [qrInput, setQrInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
-  const [outboundQrCode, setOutboundQrCode] = useState("");
   const [scanItems, setScanItems] = useState<ScanItem[]>([]);
 
   const [shipmentForm, setShipmentForm] = useState({
@@ -303,7 +310,6 @@ export default function TransaksiFefoPage() {
       vehicleNumber: selectedShipment.vehicleNumber ?? "",
       transportModeId: selectedShipment.outboundChannelId != null ? String(selectedShipment.outboundChannelId) : "",
     }));
-    setOutboundQrCode("");
   }, [selectedShipment]);
 
   const selectedManualCriteria =
@@ -315,6 +321,11 @@ export default function TransaksiFefoPage() {
     }
     return sortedFefoBatches.filter((batch) => batch.fishSpeciesId === selectedManualCriteria.speciesId);
   }, [sortedFefoBatches, selectedManualCriteria]);
+
+  const manualAllocationReady = useMemo(() => {
+    const quantity = Number(manualForm.quantityKg);
+    return Boolean(selectedSoId && manualForm.quotationItemId && manualForm.batchId && quantity > 0);
+  }, [manualForm.batchId, manualForm.quantityKg, manualForm.quotationItemId, selectedSoId]);
 
   const scanTotal = scanItems.reduce((acc, item) => acc + item.weightKg, 0);
   const requiredKg = allocationSummary?.totalRequiredKg ?? 0;
@@ -437,6 +448,50 @@ export default function TransaksiFefoPage() {
     }
   };
 
+  const handlePreviewShipmentPdf = async (shipmentDocumentId: number, fileUrl: string | null) => {
+    if (!fileUrl) {
+      setError("Dokumen ini belum memiliki file PDF.");
+      clearAlert();
+      return;
+    }
+
+    setPreviewingShipmentDocId(shipmentDocumentId);
+
+    try {
+      const response = await stockOutboundApi.fetchExportDocumentPdf(fileUrl);
+      const objectUrl = window.URL.createObjectURL(response.data);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => {
+        window.URL.revokeObjectURL(objectUrl);
+      }, 60_000);
+    } catch {
+      window.open(fileUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setPreviewingShipmentDocId(null);
+    }
+  };
+
+  const openShipmentDetail = async (shipment: Shipment) => {
+    setShipmentDetail(shipment);
+    setShipmentDetailDocs(null);
+    setShipmentDetailLoading(true);
+
+    try {
+      const response = await stockOutboundApi.getShipmentDocuments(shipment.shipmentId);
+      setShipmentDetailDocs(response.data.data ?? null);
+    } catch {
+      setShipmentDetailDocs(null);
+    } finally {
+      setShipmentDetailLoading(false);
+    }
+  };
+
+  const closeShipmentDetail = () => {
+    setShipmentDetail(null);
+    setShipmentDetailDocs(null);
+    setShipmentDetailLoading(false);
+  };
+
   const handleAddScan = () => {
     const allocationIdNumber = Number(selectedAllocationId);
     const weight = Number(weightInput);
@@ -536,14 +591,22 @@ export default function TransaksiFefoPage() {
     }
   };
 
-  const handleAdvanceShipment = async (shipment: Shipment) => {
-    const next = nextShipmentStatus(shipment.status);
-    if (!next) return;
-
-    if (next === "OUTBOUND" && !outboundQrCode.trim()) {
-      setError("Masukkan QR code batch untuk approve OUTBOUND.");
-      clearAlert();
-      return;
+  const handleAdvanceShipment = async (shipment: Shipment, next: ShipmentStatus) => {
+    if (next === "DELIVERED") {
+      try {
+        const response = await stockOutboundApi.getShipmentDocuments(shipment.shipmentId);
+        const uploaded = response.data.data?.uploadedDocuments ?? [];
+        const hasPdf = uploaded.some((doc) => Boolean(doc.fileUrl));
+        if (!hasPdf) {
+          setError("Unggah PDF shipment terlebih dahulu sebelum DELIVERED.");
+          clearAlert();
+          return;
+        }
+      } catch {
+        setError("Gagal mengecek dokumen shipment.");
+        clearAlert();
+        return;
+      }
     }
 
     if (next === "DISPATCHED" && shipment.isExport) {
@@ -577,14 +640,10 @@ export default function TransaksiFefoPage() {
     try {
       await stockOutboundApi.updateShipmentStatus(shipment.shipmentId, {
         status: next,
-        qrCode: next === "OUTBOUND" ? outboundQrCode.trim() : undefined,
         note: "Update status dari modul transaksi FEFO",
       });
       setSuccess(`Status shipment ${shipment.shipmentNumber} menjadi ${next}.`);
       clearAlert();
-      if (next === "OUTBOUND") {
-        setOutboundQrCode("");
-      }
       await fetchMasterData();
       setSelectedShipmentId(shipment.shipmentId);
     } catch (err: unknown) {
@@ -601,7 +660,7 @@ export default function TransaksiFefoPage() {
   return (
     <StockOutboundModuleShell
       title="Transaksi FEFO"
-      description="Alur operasional: alokasi FEFO/manual mengunci batch dan otomatis membuat Delivery Order (status ALLOCATED), lanjut approve QR ke OUTBOUND, isi detail delivery, lalu proses LOADING hingga DISPATCHED."
+      description="Alur operasional: alokasi FEFO/manual mengunci batch dan otomatis membuat Delivery Order (status ALLOCATED), lanjut ke OUTBOUND, isi detail delivery, lalu proses LOADING hingga DISPATCHED."
     >
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-3">
         <div className="grid grid-cols-2 gap-2 md:w-[380px]">
@@ -687,6 +746,9 @@ export default function TransaksiFefoPage() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                       Gunakan manual allocation untuk override FEFO. De-allocation hanya diperbolehkan sebelum delivery order masuk tahap OUTBOUND.
                   </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Langkah: pilih SO → pilih item quotation → pilih batch → isi quantity.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -699,6 +761,7 @@ export default function TransaksiFefoPage() {
                         batchId: "",
                       }))
                     }
+                    disabled={!selectedSoId}
                     className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
                   >
                     <option value="">Pilih item quotation</option>
@@ -712,6 +775,7 @@ export default function TransaksiFefoPage() {
                   <select
                     value={manualForm.batchId}
                     onChange={(event) => setManualForm((prev) => ({ ...prev, batchId: event.target.value }))}
+                    disabled={!manualForm.quotationItemId}
                     className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
                   >
                     <option value="">Pilih batch target</option>
@@ -727,6 +791,7 @@ export default function TransaksiFefoPage() {
                     onChange={(event) => setManualForm((prev) => ({ ...prev, quantityKg: event.target.value }))}
                     placeholder="Quantity Kg"
                     inputMode="decimal"
+                    disabled={!manualForm.batchId}
                     className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm"
                   />
 
@@ -741,7 +806,7 @@ export default function TransaksiFefoPage() {
                 <button
                   type="button"
                   onClick={handleRunManualAllocation}
-                  disabled={!selectedSoId || runningManualAllocation}
+                  disabled={!manualAllocationReady || runningManualAllocation}
                   className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {runningManualAllocation ? "Memproses Manual..." : "Simpan Manual Allocation"}
@@ -935,7 +1000,7 @@ export default function TransaksiFefoPage() {
             </div>
 
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-              Delivery Order dibuat otomatis saat alokasi dikunci. Lanjutkan ke tab Shipment untuk approval QR (status OUTBOUND), isi detail delivery, lalu lanjutkan ke LOADING dan DISPATCHED.
+              Delivery Order dibuat otomatis saat alokasi dikunci. Lanjutkan ke tab Shipment untuk status OUTBOUND, isi detail delivery, lalu lanjutkan ke LOADING dan DISPATCHED.
             </div>
           </article>
 
@@ -1006,12 +1071,6 @@ export default function TransaksiFefoPage() {
               placeholder="Customer otomatis"
               className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-section px-3 py-2 text-sm"
             />
-            <input
-              value={outboundQrCode}
-              onChange={(event) => setOutboundQrCode(event.target.value)}
-              placeholder="QR Code batch untuk approve OUTBOUND"
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-3 py-2 text-sm md:col-span-2"
-            />
             <select
               value={shipmentForm.transportModeId}
               onChange={(event) => setShipmentForm((prev) => ({ ...prev, transportModeId: event.target.value }))}
@@ -1053,8 +1112,16 @@ export default function TransaksiFefoPage() {
             >
               {savingShipmentDetails ? "Menyimpan Detail..." : "Simpan Detail Delivery"}
             </button>
+            {selectedShipment ? (
+              <Link
+                href={`/stock-outbound/dokumen-ekspor?shipmentId=${selectedShipment.shipmentId}`}
+                className="rounded-lg border border-cyan px-4 py-2 text-sm font-semibold text-cyan"
+              >
+                Upload PDF Shipment
+              </Link>
+            ) : null}
             <span className="text-xs text-gray-500 dark:text-gray-400 self-center">
-              Approval QR dilakukan saat transisi ALLOCATED ke OUTBOUND. Setelah OUTBOUND, isi detail delivery dulu sebelum lanjut ke LOADING.
+              Lanjutkan status ke OUTBOUND dari tabel. Setelah OUTBOUND, isi detail delivery sebelum lanjut ke LOADING.
             </span>
           </div>
 
@@ -1096,7 +1163,8 @@ export default function TransaksiFefoPage() {
                     return (
                       <tr
                         key={item.shipmentId}
-                        className={`border-t border-gray-100 dark:border-gray-800 ${
+                        onClick={() => openShipmentDetail(item)}
+                        className={`border-t border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-cyan/5 ${
                           item.shipmentId === selectedShipmentId ? "bg-cyan/5" : ""
                         }`}
                       >
@@ -1109,7 +1177,10 @@ export default function TransaksiFefoPage() {
                           <div className="flex gap-2">
                             <button
                               type="button"
-                              onClick={() => setSelectedShipmentId(item.shipmentId)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedShipmentId(item.shipmentId);
+                              }}
                               className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs"
                             >
                               Pilih
@@ -1122,7 +1193,12 @@ export default function TransaksiFefoPage() {
                                 readinessUnavailable ||
                                 readinessBlocked
                               }
-                              onClick={() => handleAdvanceShipment(item)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (next) {
+                                  setConfirmShipment({ shipment: item, next });
+                                }
+                              }}
                               className="rounded-md bg-navy px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {updatingShipmentId === item.shipmentId
@@ -1143,6 +1219,15 @@ export default function TransaksiFefoPage() {
                                 : "Readiness ekspor belum tersedia"}
                             </p>
                           ) : null}
+                          {item.status !== "DELIVERED" ? (
+                            <Link
+                              href={`/stock-outbound/dokumen-ekspor?shipmentId=${item.shipmentId}`}
+                              onClick={(event) => event.stopPropagation()}
+                              className="mt-1 inline-flex text-xs font-semibold text-cyan-700 hover:underline dark:text-cyan-300"
+                            >
+                              Upload PDF shipment
+                            </Link>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -1153,6 +1238,120 @@ export default function TransaksiFefoPage() {
           </div>
         </section>
       )}
+
+      {confirmShipment ? (
+        <ModalOverlay onClose={() => setConfirmShipment(null)} panelClassName="max-w-lg">
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-navy dark:text-white">Konfirmasi Update Status</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Ubah status shipment <span className="font-semibold">{confirmShipment.shipment.shipmentNumber}</span>
+              menjadi <span className="font-semibold">{confirmShipment.next}</span>?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmShipment(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const payload = confirmShipment;
+                  setConfirmShipment(null);
+                  void handleAdvanceShipment(payload.shipment, payload.next);
+                }}
+                className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white"
+              >
+                Ya, lanjut
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      ) : null}
+
+      {shipmentDetail ? (
+        <ModalOverlay onClose={closeShipmentDetail} panelClassName="max-w-4xl">
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-navy dark:text-white">Detail Shipment</h3>
+            <div className="grid grid-cols-1 gap-2 rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-sm md:grid-cols-2">
+              <p>
+                DO Number: <span className="font-semibold">{shipmentDetail.shipmentNumber}</span>
+              </p>
+              <p>
+                Status: <span className="font-semibold">{shipmentDetail.status}</span>
+              </p>
+              <p>
+                Customer: <span className="font-semibold">{shipmentDetail.customerName}</span>
+              </p>
+              <p>
+                Destination: <span className="font-semibold">{shipmentDetail.destination ?? "-"}</span>
+              </p>
+              <p>
+                Vehicle: <span className="font-semibold">{shipmentDetail.vehicleNumber ?? "-"}</span>
+              </p>
+              <p>
+                Created: <span className="font-semibold">{formatDateTime(shipmentDetail.createdAt)}</span>
+              </p>
+              <p>
+                Sales Order:{" "}
+                <Link
+                  href={`/stock-outbound/penerimaan-sales-order?search=${encodeURIComponent(
+                    shipmentDetail.soNumber
+                  )}`}
+                  className="font-semibold text-cyan-700 hover:underline dark:text-cyan-300"
+                >
+                  {shipmentDetail.soNumber}
+                </Link>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-navy dark:text-white">PDF Shipment</h4>
+              {shipmentDetailLoading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Memuat dokumen...</p>
+              ) : (shipmentDetailDocs?.uploadedDocuments ?? []).length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Belum ada dokumen.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-dark-section text-left">
+                      <tr>
+                        <th className="px-3 py-2">Dokumen</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">PDF</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(shipmentDetailDocs?.uploadedDocuments ?? []).map((doc) => (
+                        <tr key={doc.shipmentDocumentId} className="border-t border-gray-100 dark:border-gray-800">
+                          <td className="px-3 py-2 font-medium">{doc.documentName}</td>
+                          <td className="px-3 py-2">{doc.status}</td>
+                          <td className="px-3 py-2">
+                            {doc.fileUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => handlePreviewShipmentPdf(doc.shipmentDocumentId, doc.fileUrl)}
+                                disabled={previewingShipmentDocId === doc.shipmentDocumentId}
+                                className="text-xs font-semibold text-cyan-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60 dark:text-cyan-300"
+                              >
+                                {previewingShipmentDocId === doc.shipmentDocumentId ? "Membuka..." : "Lihat PDF"}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Belum ada</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </ModalOverlay>
+      ) : null}
     </StockOutboundModuleShell>
   );
 }

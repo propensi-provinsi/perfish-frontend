@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import StockOutboundModuleShell from "../components/StockOutboundModuleShell";
 import { stockOutboundApi } from "@/lib/stock-outbound-api";
+import { ModalOverlay } from "@/components/inbound-fish/ModalPrimitives";
 import type {
   Certification,
   CertificationAlert,
@@ -12,6 +13,7 @@ import type {
   ExportReadiness,
   Shipment,
   ShipmentDocumentChecklist,
+  ShipmentStatus,
   TrackedDocumentStatus,
 } from "@/types/stock-outbound";
 import { formatDate, formatDateTime } from "../components/formatters";
@@ -31,8 +33,33 @@ function resolveChecklistActionLink(key: string) {
   return "/stock-outbound/transaksi-fefo";
 }
 
+function nextShipmentStatus(current: ShipmentStatus): ShipmentStatus | null {
+  if (current === "ALLOCATED") return "OUTBOUND";
+  if (current === "OUTBOUND") return "LOADING";
+  if (current === "LOADING") return "DISPATCHED";
+  if (current === "DISPATCHED") return "DELIVERED";
+  if (current === "PICKING") return "OUTBOUND";
+  if (current === "CHECKING") return "OUTBOUND";
+  return null;
+}
+
 export default function DokumenEksporPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <DokumenEksporContent />
+    </Suspense>
+  );
+}
+
+function DokumenEksporContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedShipmentId = useMemo(() => {
+    const raw = searchParams.get("shipmentId");
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }, [searchParams]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [selectedShipmentId, setSelectedShipmentId] = useState<number | null>(null);
   const [checklist, setChecklist] = useState<ShipmentDocumentChecklist | null>(null);
@@ -44,6 +71,7 @@ export default function DokumenEksporPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [updatingShipmentId, setUpdatingShipmentId] = useState<number | null>(null);
   const [previewingDocumentId, setPreviewingDocumentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -54,10 +82,11 @@ export default function DokumenEksporPage() {
     documentName: "",
     documentNumber: "",
     status: "DRAFT" as TrackedDocumentStatus,
-    expiryDate: "",
+    expiryDate: new Date().toISOString().split("T")[0],
     fileUrl: "",
     remarks: "",
   });
+  const [confirmCreate, setConfirmCreate] = useState(false);
 
   const clearAlert = useCallback(() => {
     setTimeout(() => {
@@ -111,6 +140,13 @@ export default function DokumenEksporPage() {
   }, [fetchMaster]);
 
   useEffect(() => {
+    if (!preselectedShipmentId || shipments.length === 0) return;
+    if (shipments.some((item) => item.shipmentId === preselectedShipmentId)) {
+      setSelectedShipmentId(preselectedShipmentId);
+    }
+  }, [preselectedShipmentId, shipments]);
+
+  useEffect(() => {
     if (selectedShipmentId) {
       fetchShipmentContext(selectedShipmentId);
     } else {
@@ -123,6 +159,17 @@ export default function DokumenEksporPage() {
     () => shipments.find((item) => item.shipmentId === selectedShipmentId) ?? null,
     [shipments, selectedShipmentId]
   );
+
+  const nextStatus = useMemo(
+    () => (selectedShipment ? nextShipmentStatus(selectedShipment.status) : null),
+    [selectedShipment]
+  );
+
+  const isUpdatingShipment = updatingShipmentId === selectedShipment?.shipmentId;
+  const requiresReadiness = Boolean(selectedShipment?.isExport && nextStatus === "DISPATCHED");
+  const readinessReadyToDispatch = Boolean(readiness && readiness.readyToDispatch && readiness.readinessScore >= 100);
+  const canAdvanceShipment =
+    Boolean(selectedShipment && nextStatus) && !isUpdatingShipment && (!requiresReadiness || readinessReadyToDispatch);
 
   const assignSelectedPdf = (file: File | null) => {
     if (!file) {
@@ -189,7 +236,7 @@ export default function DokumenEksporPage() {
     }
   };
 
-  const handleCreateDocument = async () => {
+  const handleCreateDocument = () => {
     if (!selectedShipmentId) {
       setError("Pilih shipment terlebih dahulu.");
       clearAlert();
@@ -202,7 +249,19 @@ export default function DokumenEksporPage() {
       return;
     }
 
+    setConfirmCreate(true);
+  };
+
+  const handleConfirmCreate = async () => {
+    setConfirmCreate(false);
     setSaving(true);
+    setError(null);
+
+    if (!selectedShipmentId) {
+      setSaving(false);
+      return;
+    }
+
     try {
       let fileUrl = documentForm.fileUrl || undefined;
       if (selectedPdfFile) {
@@ -224,7 +283,7 @@ export default function DokumenEksporPage() {
         documentName: "",
         documentNumber: "",
         status: "DRAFT",
-        expiryDate: "",
+        expiryDate: new Date().toISOString().split('T')[0],
         fileUrl: "",
         remarks: "",
       });
@@ -243,25 +302,10 @@ export default function DokumenEksporPage() {
     }
   };
 
-  const handleUpdateDocumentStatus = async (shipmentDocumentId: number, status: TrackedDocumentStatus) => {
-    if (!selectedShipmentId) return;
-
-    try {
-      await stockOutboundApi.updateShipmentDocument(shipmentDocumentId, {
-        shipmentId: selectedShipmentId,
-        status,
-      });
-      await fetchShipmentContext(selectedShipmentId);
-      setSuccess("Status dokumen diperbarui.");
-      clearAlert();
-    } catch {
-      setError("Gagal memperbarui status dokumen.");
-      clearAlert();
-    }
-  };
-
   const handleDeleteDocument = async (shipmentDocumentId: number) => {
-    if (!selectedShipmentId) return;
+    if (!selectedShipmentId) {
+      return;
+    }
 
     try {
       await stockOutboundApi.deleteShipmentDocument(shipmentDocumentId);
@@ -271,6 +315,68 @@ export default function DokumenEksporPage() {
     } catch {
       setError("Gagal menghapus dokumen.");
       clearAlert();
+    }
+  };
+
+  const handleAdvanceShipment = async (shipment: Shipment, next: ShipmentStatus) => {
+    if (next === "DELIVERED") {
+      try {
+        const response = await stockOutboundApi.getShipmentDocuments(shipment.shipmentId);
+        const uploaded = response.data.data?.uploadedDocuments ?? [];
+        const hasPdf = uploaded.some((doc) => Boolean(doc.fileUrl));
+        if (!hasPdf) {
+          setError("Unggah PDF shipment terlebih dahulu sebelum DELIVERED.");
+          clearAlert();
+          return;
+        }
+      } catch {
+        setError("Gagal mengecek dokumen shipment.");
+        clearAlert();
+        return;
+      }
+    }
+
+    if (next === "DISPATCHED" && shipment.isExport) {
+      let currentReadiness = readiness;
+
+      if (!currentReadiness) {
+        try {
+          const response = await stockOutboundApi.getExportReadiness(shipment.shipmentId);
+          currentReadiness = response.data.data ?? null;
+          setReadiness(currentReadiness);
+        } catch {
+          setError("Gagal mengecek export readiness shipment.");
+          clearAlert();
+          return;
+        }
+      }
+
+      if (!currentReadiness || currentReadiness.readinessScore < 100 || !currentReadiness.readyToDispatch) {
+        setError(`Shipment ekspor belum siap dispatch. Readiness saat ini ${currentReadiness?.readinessScore ?? 0}%.`);
+        clearAlert();
+        return;
+      }
+    }
+
+    setUpdatingShipmentId(shipment.shipmentId);
+    try {
+      await stockOutboundApi.updateShipmentStatus(shipment.shipmentId, {
+        status: next,
+        note: "Update status dari modul dokumen ekspor",
+      });
+      setSuccess(`Status shipment ${shipment.shipmentNumber} menjadi ${next}.`);
+      clearAlert();
+      await fetchMaster();
+      await fetchShipmentContext(shipment.shipmentId);
+      setSelectedShipmentId(shipment.shipmentId);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Gagal memperbarui status shipment.";
+      setError(message);
+      clearAlert();
+    } finally {
+      setUpdatingShipmentId(null);
     }
   };
 
@@ -389,7 +495,8 @@ export default function DokumenEksporPage() {
                               event.target.value as TrackedDocumentStatus
                             )
                           }
-                          className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-2 py-1 text-xs"
+                            disabled={item.status === "FINAL"}
+                            className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-section px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {documentStatuses.map((status) => (
                             <option key={status} value={status}>
@@ -628,11 +735,18 @@ export default function DokumenEksporPage() {
               </button>
               <button
                 type="button"
-                onClick={() => router.push("/stock-outbound/transaksi-fefo")}
-                disabled={!readiness?.readyToDispatch}
+                onClick={() => {
+                  if (!selectedShipment || !nextStatus) return;
+                  handleAdvanceShipment(selectedShipment, nextStatus);
+                }}
+                disabled={!canAdvanceShipment}
                 className="rounded bg-navy px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Proceed ke Dispatch
+                {isUpdatingShipment
+                  ? "Memproses..."
+                  : nextStatus
+                    ? `Proceed ke ${nextStatus}`
+                    : "Status selesai"}
               </button>
             </div>
 
@@ -644,6 +758,36 @@ export default function DokumenEksporPage() {
           </div>
         </article>
       </section>
+
+      {confirmCreate ? (
+        <ModalOverlay onClose={() => setConfirmCreate(false)} panelClassName="max-w-lg">
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-navy dark:text-white">Konfirmasi Simpan Dokumen</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Simpan dokumen <span className="font-semibold">{documentForm.documentName}</span>?
+              {documentForm.status === "FINAL" ? (
+                <span> Status FINAL tidak bisa diubah lagi.</span>
+              ) : null}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmCreate(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreate}
+                className="rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-white"
+              >
+                Ya, simpan
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      ) : null}
     </StockOutboundModuleShell>
   );
 }
