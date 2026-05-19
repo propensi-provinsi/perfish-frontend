@@ -1,13 +1,13 @@
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import AppShell from "@/components/layout/AppShell";
 import MoveBatchForm from "@/components/cold-storage/MoveBatchForm";
 
 export default function MoveBatchPage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <MoveBatchForm />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

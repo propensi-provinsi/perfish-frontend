@@ -6,8 +6,12 @@ import {
   disposeBatchMultipart,
   downloadDisposalBeritaAcara,
   listColdStorageStocks,
-  listDisposalHistory,
+  listDisposalHistoryPaged,
 } from "@/lib/coldstorage-api";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+} from "@/components/ui/TableListPagination";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import {
   alertErrorClass,
@@ -36,6 +40,11 @@ import type {
 export default function DisposalPanel() {
   const [availableStocks, setAvailableStocks] = useState<ColdStorageStockRow[]>([]);
   const [history, setHistory] = useState<DisposalResponse[]>([]);
+  const [historyUiPage, setHistoryUiPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [historyTotalElements, setHistoryTotalElements] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [batchId, setBatchId] = useState<number | "">("");
   const [jumlahDibuang, setJumlahDibuang] = useState<string>("");
@@ -52,21 +61,35 @@ export default function DisposalPanel() {
     [availableStocks, batchId]
   );
 
+  async function loadStocks() {
+    const stocks = await listColdStorageStocks();
+    setAvailableStocks(
+      stocks.filter((s) => {
+        const q = Number(s.jumlahStok ?? 0);
+        return Number.isFinite(q) && q > 0;
+      })
+    );
+  }
+
+  async function loadHistory(apiPage = historyUiPage - 1, size = historyPageSize) {
+    setHistoryLoading(true);
+    try {
+      const paged = await listDisposalHistoryPaged(apiPage, size);
+      setHistory(paged.content ?? []);
+      setHistoryTotalPages(Math.max(1, paged.totalPages ?? 1));
+      setHistoryTotalElements(paged.totalElements ?? 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memuat histori disposal");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function loadData() {
     setLoading(true);
     setError(null);
     try {
-      const [stocks, historyRows] = await Promise.all([
-        listColdStorageStocks(),
-        listDisposalHistory(),
-      ]);
-      setAvailableStocks(
-        stocks.filter((s) => {
-          const q = Number(s.jumlahStok ?? 0);
-          return Number.isFinite(q) && q > 0;
-        })
-      );
-      setHistory(historyRows);
+      await Promise.all([loadStocks(), loadHistory(0)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat data disposal");
     } finally {
@@ -76,7 +99,19 @@ export default function DisposalPanel() {
 
   useEffect(() => {
     void loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleHistoryPageChange = (page: number) => {
+    setHistoryUiPage(page);
+    void loadHistory(page - 1, historyPageSize);
+  };
+
+  const handleHistoryPageSizeChange = (size: number) => {
+    setHistoryPageSize(size);
+    setHistoryUiPage(1);
+    void loadHistory(0, size);
+  };
 
   const maxQty = selectedBatch ? Number(selectedBatch.jumlahStok ?? 0) : 0;
   const parsedJumlah = Number(String(jumlahDibuang).replace(",", "."));
@@ -109,7 +144,8 @@ export default function DisposalPanel() {
       setJumlahDibuang("");
       setAlasan("");
       setBeritaAcara(null);
-      await loadData();
+      setHistoryUiPage(1);
+      await Promise.all([loadStocks(), loadHistory(0, historyPageSize)]);
     } catch (err) {
       const apiMessage =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -239,11 +275,18 @@ export default function DisposalPanel() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">Histori Disposal</h2>
-          {loading ? (
+          {loading || historyLoading ? (
             <p className={textMuted}>Memuat...</p>
           ) : history.length === 0 ? (
             <p className={textMuted}>Belum ada riwayat disposal.</p>
           ) : (
+            <>
+            <TableListPaginationToolbar
+              totalCount={historyTotalElements}
+              itemLabel="disposal"
+              pageSize={historyPageSize}
+              onPageSizeChange={handleHistoryPageSizeChange}
+            />
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {history.map((h) => (
                 <li key={h.disposalId} className="py-2 text-sm">
@@ -284,6 +327,15 @@ export default function DisposalPanel() {
                 </li>
               ))}
             </ul>
+            <TableListPaginationFooter
+              page={historyUiPage}
+              totalPages={historyTotalPages}
+              totalCount={historyTotalElements}
+              onPageChange={handleHistoryPageChange}
+              disabled={historyLoading}
+              show={historyTotalElements > 0}
+            />
+            </>
           )}
         </section>
       </div>

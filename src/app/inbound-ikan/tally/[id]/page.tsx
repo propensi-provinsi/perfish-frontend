@@ -24,10 +24,11 @@ import {
   addLineToReceipt,
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
+import { SIZING_GRADING_ROLES } from "@/lib/rbac";
 
 export default function InboundTallyPage() {
   return (
-    <ProtectedRoute allowedRoles={["WAREHOUSE_STAFF", "SUPERADMIN"]}>
+    <ProtectedRoute allowedRoles={SIZING_GRADING_ROLES}>
       <AppShell>
         <InboundTallyContent />
       </AppShell>
@@ -289,9 +290,8 @@ function InboundTallyContent() {
     setMsg(null);
     try {
       await finishWeighing(receiptId);
-      setMsg({ type: "success", text: "Sizing & Grading selesai. Lanjutkan paletisasi ke kandang macan." });
-      await loadReceipt();
-      setTimeout(() => router.push(`/inbound-ikan/palletize/${receiptId}`), 1200);
+      setMsg({ type: "success", text: "Sizing & Grading selesai. Kembali ke dashboard penerimaan." });
+      router.push("/inbound-ikan");
     } catch {
       setMsg({ type: "error", text: "Gagal menyelesaikan weighing." });
     } finally {
@@ -449,6 +449,41 @@ function InboundTallyContent() {
                 required
               />
             </div>
+            <div className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30 space-y-3">
+              <div className="flex items-center gap-2">
+                <input
+                  id="reject-basket"
+                  type="checkbox"
+                  checked={isRejectBasket}
+                  onChange={(e) => {
+                    setIsRejectBasket(e.target.checked);
+                    if (!e.target.checked) setRejectReasonId("");
+                  }}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
+                  Reject Mutu
+                </label>
+              </div>
+              {isRejectBasket && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Alasan reject (wajib)</label>
+                  <select
+                    value={rejectReasonId === "" ? "" : rejectReasonId}
+                    onChange={(e) => setRejectReasonId(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                    required={isRejectBasket}
+                  >
+                    <option value="">— Pilih alasan —</option>
+                    {rejectReasons.map((r) => (
+                      <option key={r.rejectReasonId} value={r.rejectReasonId}>
+                        {r.reasonCode} — {r.reasonName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade</label>
               <select
@@ -459,46 +494,23 @@ function InboundTallyContent() {
               >
                 <option value="">Pilih grade</option>
                 {gradeList.map((g) => (
-                  <option key={g.gradeId} value={g.gradeId}>{g.gradeCode} — {g.gradeName}</option>
+                  <option key={g.gradeId} value={g.gradeId}>
+                    {g.gradeCode} — {g.gradeName}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Suhu penerimaan (°C)</label>
-              <input type="number" step="0.1" value={suhu} onChange={(e) => setSuhu(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
-            </div>
-            <div className="sm:col-span-2 flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-white/5">
               <input
-                id="reject-basket"
-                type="checkbox"
-                checked={isRejectBasket}
-                onChange={(e) => {
-                  setIsRejectBasket(e.target.checked);
-                  if (!e.target.checked) setRejectReasonId("");
-                }}
-                className="h-4 w-4 rounded border-gray-300"
+                type="number"
+                step="0.1"
+                value={suhu}
+                onChange={(e) => setSuhu(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                required
               />
-              <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
-                Basket reject (mutu)
-              </label>
-            </div>
-            {isRejectBasket && (
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Alasan reject (wajib)</label>
-                <select
-                  value={rejectReasonId === "" ? "" : rejectReasonId}
-                  onChange={(e) => setRejectReasonId(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                  required={isRejectBasket}
-                >
-                  <option value="">— Pilih alasan —</option>
-                  {rejectReasons.map((r) => (
-                    <option key={r.rejectReasonId} value={r.rejectReasonId}>{r.reasonCode} — {r.reasonName}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
+            </div>          </div>
           <button
             type="submit"
             disabled={

@@ -1,15 +1,15 @@
 "use client";
 
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import AppShell from "@/components/layout/AppShell";
 import BatchHistoryPanel from "@/components/cold-storage/BatchHistoryPanel";
 
 export default function BatchHistoryPage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <BatchHistoryPanel />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }

@@ -84,10 +84,10 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
 
   const gradeLabel = useMemo(() => {
     if (!data) return "—";
-    return data.currentStock?.gradeLabel ?? data.batch.qualityGrade ?? "—";
+    return data.gradeLabel ?? data.currentStock?.gradeLabel ?? data.batch.qualityGrade ?? "—";
   }, [data]);
 
-  const skuCode = data?.currentStock?.fishSkuCode ?? "—";
+  const skuCode = data?.fishSkuCode ?? data?.currentStock?.fishSkuCode ?? "—";
   const kategori = data?.batch.kategoriStatus ?? data?.currentStock?.kategoriStatus;
 
   if (loading) {

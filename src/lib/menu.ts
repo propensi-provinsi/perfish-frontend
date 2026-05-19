@@ -18,6 +18,14 @@ import {
 import type { IconType } from "react-icons";
 import type { UserRole } from "@/types";
 import {
+  canAccessPurchaseOrder,
+  canAccessRingkasanSupplier,
+  canReadDashboardPenerimaan,
+  canAccessLoadingBay,
+  getColdStorageNavHrefsForRole,
+  LOADING_BAY_PATH,
+} from "@/lib/rbac";
+import {
   isRoleAllowedForStockOutboundPath,
   STOCK_OUTBOUND_MODULE_ROLES,
 } from "@/lib/stock-outbound-rbac";
@@ -212,27 +220,69 @@ const REPORTS_MENU: MenuItem = {
 //  Role-based menu builders
 // ─────────────────────────────────────────────
 
-function inboundPurchasingItem(role: string | undefined): MenuItem {
-  const showRingkasan =
-    role === "SBB_STAFF" || role === "SUPERADMIN" || role === "KEPALA_CABANG";
-  const canViewPo =
-    role === "SUPERADMIN" || role === "SBB_STAFF" ||
-    role === "KEPALA_CABANG" || role === "WAREHOUSE_STAFF";
-
-  const baseChildren = canViewPo
-    ? [PENERIMAAN_IKAN_ITEM, PURCHASE_ORDER_ITEM]
-    : [PENERIMAAN_IKAN_ITEM];
-
+function inboundPurchasingItem(role: UserRole | undefined): MenuItem | null {
+  const children: MenuItem[] = [];
+  if (canReadDashboardPenerimaan(role)) {
+    children.push(PENERIMAAN_IKAN_ITEM);
+  }
+  if (canAccessPurchaseOrder(role)) {
+    children.push(PURCHASE_ORDER_ITEM);
+  }
+  if (canAccessRingkasanSupplier(role)) {
+    children.push(RINGKASAN_SUPPLIER_ITEM);
+  }
+  if (children.length === 0) return null;
   return {
     key: "purchasing",
     label: "Inbound Ikan",
     icon: LuFish,
-    children: showRingkasan ? [...baseChildren, RINGKASAN_SUPPLIER_ITEM] : baseChildren,
+    children,
   };
 }
 
-function withInboundPurchasingMenu(menu: MenuItem[], role: string | undefined): MenuItem[] {
-  return menu.map((it) => (it.key === "purchasing" ? inboundPurchasingItem(role) : it));
+function storageMenuForRole(role: UserRole | undefined): MenuItem | null {
+  const csChildren: MenuItem[] = [
+    { key: "cs-monitor", label: "Monitor Stok", href: "/cold-storage" },
+    { key: "cs-assign", label: "Penentuan Lokasi", href: "/cold-storage/assign-location" },
+    { key: "cs-move", label: "Pemindahan Lokasi", href: "/cold-storage/move-batch" },
+    { key: "cs-history", label: "Histori Batch", href: "/cold-storage/batch-history" },
+    { key: "cs-disposal", label: "Disposal", href: "/cold-storage/disposal" },
+    { key: "cs-structure", label: "Struktur Gudang", href: "/cold-storage/structure" },
+    { key: "cs-opname", label: "Stock Opname", href: "/cold-storage/stock-opname" },
+    { key: "cs-merge", label: "Gabung Batch", href: "/cold-storage/batch-merge" },
+  ].filter((item) => item.href && getColdStorageNavHrefsForRole(role).includes(item.href));
+
+  const storageChildren: MenuItem[] = [];
+  if (canAccessLoadingBay(role)) {
+    storageChildren.push({ key: "storage-loading-bay", label: "Loading Bay", href: LOADING_BAY_PATH });
+  }
+  if (csChildren.length > 0) {
+    storageChildren.push({
+      key: "storage-cold-storage",
+      label: "Cold Storage",
+      icon: LuSnowflake,
+      children: csChildren,
+    });
+  }
+  if (storageChildren.length === 0) return null;
+  return {
+    key: "storage",
+    label: "Storage",
+    icon: LuWarehouse,
+    children: storageChildren,
+  };
+}
+
+function withInboundPurchasingMenu(menu: MenuItem[], role: UserRole | undefined): MenuItem[] {
+  const inbound = inboundPurchasingItem(role);
+  if (!inbound) return menu.filter((it) => it.key !== "purchasing");
+  return menu.map((it) => (it.key === "purchasing" ? inbound : it));
+}
+
+function withStorageMenu(menu: MenuItem[], role: UserRole | undefined): MenuItem[] {
+  const storage = storageMenuForRole(role);
+  if (!storage) return menu.filter((it) => it.key !== "storage");
+  return menu.map((it) => (it.key === "storage" ? storage : it));
 }
 
 /** Sembunyikan Master Data → Supplier kecuali Superadmin */
@@ -294,41 +344,83 @@ function withReportsMenuForRole(menu: MenuItem[], role: string | undefined): Men
 // ─────────────────────────────────────────────
 
 export function getMainMenuForRole(role: string | undefined): MenuItem[] {
-  // ── Kepala Cabang: menu terbatas ──
+  // ── Kepala Cabang ──
   if (role === "KEPALA_CABANG") {
+    const inbound = inboundPurchasingItem(role);
     const menu: MenuItem[] = [
       { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
       {
-        key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
-        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }]
+        key: "dashboard",
+        label: "Dashboard",
+        icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }],
       },
-      inboundPurchasingItem(role),
-      STOCK_OUTBOUND_ITEM,
-      REPORTS_MENU,
     ];
+    if (inbound) menu.push(inbound);
+    menu.push(STOCK_OUTBOUND_ITEM, REPORTS_MENU);
     return withStockOutboundMenuForRole(menu, role);
   }
 
-  // ── SBB Staff: menu terbatas ──
+  // ── SBB Staff ──
   if (role === "SBB_STAFF") {
-    return [
+    const inbound = inboundPurchasingItem(role);
+    const menu: MenuItem[] = [
       { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
       {
-        key: "dashboard", label: "Dashboard", icon: HiOutlineChartBarSquare,
-        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }]
+        key: "dashboard",
+        label: "Dashboard",
+        icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }],
       },
-      inboundPurchasingItem(role),
-      REPORTS_MENU,
     ];
+    if (inbound) menu.push(inbound);
+    menu.push(REPORTS_MENU);
+    return menu;
+  }
+
+  // ── QC Specialist: dashboard penerimaan + stock opname ──
+  if (role === "QC_SPECIALIST") {
+    const inbound = inboundPurchasingItem(role);
+    const storage = storageMenuForRole(role);
+    const menu: MenuItem[] = [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+    ];
+    if (inbound) menu.push(inbound);
+    if (storage) menu.push(storage);
+    return menu;
+  }
+
+  // ── Warehouse Staff / Admin ──
+  if (role === "WAREHOUSE_STAFF" || role === "WAREHOUSE_ADMIN") {
+    const inbound = inboundPurchasingItem(role);
+    const storage = storageMenuForRole(role);
+    const menu: MenuItem[] = [
+      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+      {
+        key: "dashboard",
+        label: "Dashboard",
+        icon: HiOutlineChartBarSquare,
+        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }],
+      },
+    ];
+    if (inbound) menu.push(inbound);
+    if (storage) menu.push(storage);
+    return withStockOutboundMenuForRole(
+      withAuditTrailMenuForRole(menu, role),
+      role
+    );
   }
 
   // ── Semua role lain: full menu dengan filter bertahap ──
   return withReportsMenuForRole(
     withAuditTrailMenuForRole(
       withStockOutboundMenuForRole(
-        withMasterDataSupplierMenuForRole(
-          withInboundPurchasingMenu(mainMenu, role),
-          role
+        withStorageMenu(
+          withMasterDataSupplierMenuForRole(
+            withInboundPurchasingMenu(mainMenu, role as UserRole),
+            role as UserRole
+          ),
+          role as UserRole
         ),
         role
       ),

@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import Link from "next/link";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import AppShell from "@/components/layout/AppShell";
 import Button from "@/components/ui/Button";
 import { listLoadingBayBatches } from "@/lib/coldstorage-api";
@@ -11,7 +16,9 @@ import type { LoadingBayBatchRow } from "@/types/coldstorage";
 import { stockCategoryStatusBadgeClass } from "@/lib/coldstorage-status";
 import { textBodySm } from "@/lib/coldstorage-ui";
 import BatchQrCode from "@/components/cold-storage/BatchQrCode";
+import RejectBatchLegend from "@/components/cold-storage/RejectBatchLegend";
 import { batchDetailHref } from "@/lib/batch-detail-url";
+import { isInboundRejectBatchRow, rejectBatchRowClass } from "@/lib/batch-quality";
 
 function shortColdStorageLabel(full: string | null | undefined): string {
   if (!full) return "—";
@@ -39,11 +46,11 @@ function fmtQty(v: number | string | null | undefined): string {
 
 export default function LoadingBayPage() {
   return (
-    <ProtectedRoute>
+    <ColdStoragePageGuard>
       <AppShell>
         <LoadingBayContent />
       </AppShell>
-    </ProtectedRoute>
+    </ColdStoragePageGuard>
   );
 }
 
@@ -52,8 +59,7 @@ function LoadingBayContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const pagination = useClientTablePagination(rows, { resetDeps: [search] });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,7 +67,6 @@ function LoadingBayContent() {
     try {
       const data = await listLoadingBayBatches(search.trim());
       setRows(data);
-      setPage(1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat loading bay");
     } finally {
@@ -72,19 +77,6 @@ function LoadingBayContent() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
-
-  const visibleRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [page, pageSize, rows]);
 
   return (
     <div className="space-y-6">
@@ -124,26 +116,13 @@ function LoadingBayContent() {
           </button>
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">
-            Total: <strong className="text-gray-900 dark:text-gray-100">{rows.length}</strong> batch
-          </span>
-          <label className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-            <span>Baris per halaman</span>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-            </select>
-          </label>
-        </div>
+        <TableListPaginationToolbar
+          totalCount={pagination.totalCount}
+          itemLabel="batch"
+          pageSize={pagination.pageSize}
+          onPageSizeChange={pagination.setPageSize}
+        />
+        <RejectBatchLegend className="mb-3" />
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
@@ -176,8 +155,13 @@ function LoadingBayContent() {
                   </td>
                 </tr>
               ) : (
-                visibleRows.map((r) => (
-                  <tr key={r.batchId} className="border-b border-gray-100 dark:border-gray-800">
+                pagination.visibleItems.map((r) => {
+                  const rejectRow = isInboundRejectBatchRow(r);
+                  return (
+                  <tr
+                    key={r.batchId}
+                    className={`border-b border-gray-100 dark:border-gray-800 ${rejectRow ? rejectBatchRowClass : ""}`}
+                  >
                     <td className={`px-3 py-2 font-mono text-xs ${textBodySm}`}>{r.inboundReceiptCode ?? "—"}</td>
                     <td className={`px-3 py-2 max-w-[200px] truncate ${textBodySm}`} title={r.lokasiPenerimaan ?? undefined}>
                       {shortColdStorageLabel(r.lokasiPenerimaan)}
@@ -226,37 +210,21 @@ function LoadingBayContent() {
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
         </div>
 
-        {!loading && rows.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
-            <p className="text-gray-500 dark:text-gray-400">
-              Halaman {page} dari {totalPages}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-                disabled={page <= 1}
-                className="rounded border border-gray-300 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
-              >
-                Sebelumnya
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
-                disabled={page >= totalPages}
-                className="rounded border border-gray-300 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
-              >
-                Berikutnya
-              </button>
-            </div>
-          </div>
-        )}
+        <TableListPaginationFooter
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          onPageChange={pagination.setPage}
+          disabled={loading}
+          show={!loading && pagination.totalCount > 0}
+        />
       </section>
     </div>
   );

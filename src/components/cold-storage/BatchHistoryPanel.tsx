@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import { listBatchMoveHistory, listBatchesWithMovementHistory } from "@/lib/coldstorage-api";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import { alertErrorClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
@@ -21,6 +26,11 @@ export default function BatchHistoryPanel() {
   const [batches, setBatches] = useState<MasterBatchOption[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<number | "">("");
   const [historyData, setHistoryData] = useState<AssignLocationResponse[] | null>(null);
+
+  const historyRows = useMemo(() => historyData ?? [], [historyData]);
+  const historyPagination = useClientTablePagination(historyRows, {
+    resetDeps: [selectedBatchId],
+  });
 
   useEffect(() => {
     async function bootstrap() {
@@ -98,7 +108,14 @@ export default function BatchHistoryPanel() {
         ) : !selectedBatchId ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">Pilih batch untuk melihat histori perpindahan.</p>
         ) : historyData && historyData.length > 0 ? (
-          <div className="overflow-x-auto">
+          <>
+            <TableListPaginationToolbar
+              totalCount={historyPagination.totalCount}
+              itemLabel="perpindahan"
+              pageSize={historyPagination.pageSize}
+              onPageSizeChange={historyPagination.setPageSize}
+            />
+            <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
@@ -111,7 +128,7 @@ export default function BatchHistoryPanel() {
                 </tr>
               </thead>
               <tbody>
-                {historyData.map((h) => (
+                {historyPagination.visibleItems.map((h) => (
                   <tr key={h.locationId} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="py-2 pr-3 text-gray-700 dark:text-gray-200">
                       {h.createdAt ? new Date(h.createdAt).toLocaleString() : "—"}
@@ -137,7 +154,15 @@ export default function BatchHistoryPanel() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <TableListPaginationFooter
+              page={historyPagination.page}
+              totalPages={historyPagination.totalPages}
+              totalCount={historyPagination.totalCount}
+              onPageChange={historyPagination.setPage}
+              show={historyPagination.totalCount > 0}
+            />
+          </>
         ) : (
           <p className="text-sm text-gray-500 dark:text-gray-400">Belum ada histori perpindahan untuk batch ini.</p>
         )}

@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  TableListPaginationFooter,
+  TableListPaginationToolbar,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
 import Link from "next/link";
 import Button from "@/components/ui/Button";
 import BatchQrCode from "@/components/cold-storage/BatchQrCode";
+import RejectBatchLegend from "@/components/cold-storage/RejectBatchLegend";
 import { batchDetailHref } from "@/lib/batch-detail-url";
+import { isInboundRejectBatchRow, rejectBatchRowClass } from "@/lib/batch-quality";
 import { actionBtn } from "@/lib/ui-action";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks } from "@/lib/coldstorage-api";
@@ -22,9 +29,6 @@ export default function ColdStorageDashboard() {
   const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
   const [warehouseId, setWarehouseId] = useState<number | "">("");
   const [kategoriStatus, setKategoriStatus] = useState<StockCategoryStatus | "">("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-
   async function loadData() {
     setLoading(true);
     setError(null);
@@ -38,7 +42,6 @@ export default function ColdStorageDashboard() {
       ]);
       setColdStorages(coldStorageData.filter((cs) => cs.isActive));
       setRows(stocksData);
-      setPage(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat dashboard Cold Storage");
     } finally {
@@ -59,16 +62,9 @@ export default function ColdStorageDashboard() {
     return totals;
   }, [rows]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const visibleRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [page, pageSize, rows]);
+  const pagination = useClientTablePagination(rows, {
+    resetDeps: [warehouseId, kategoriStatus],
+  });
 
   return (
     <div className="space-y-6">
@@ -127,6 +123,13 @@ export default function ColdStorageDashboard() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Stok</h2>
+        <TableListPaginationToolbar
+          totalCount={pagination.totalCount}
+          itemLabel="batch"
+          pageSize={pagination.pageSize}
+          onPageSizeChange={pagination.setPageSize}
+        />
+        <RejectBatchLegend className="mb-3" />
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
@@ -151,9 +154,14 @@ export default function ColdStorageDashboard() {
                     Memuat data...
                   </td>
                 </tr>
-              ) : visibleRows.length ? (
-                visibleRows.map((row) => (
-                  <tr key={`${row.batchId}-${row.warehouseId}`} className="border-b border-gray-100 dark:border-gray-800">
+              ) : pagination.visibleItems.length ? (
+                pagination.visibleItems.map((row) => {
+                  const rejectRow = isInboundRejectBatchRow(row);
+                  return (
+                  <tr
+                    key={`${row.batchId}-${row.warehouseId}`}
+                    className={`border-b border-gray-100 dark:border-gray-800 ${rejectRow ? rejectBatchRowClass : ""}`}
+                  >
                     <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">{row.batchNumber}</td>
                     <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.inboundReceiptCode ?? "—"}</td>
                     <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.speciesName ?? "—"}</td>
@@ -198,7 +206,8 @@ export default function ColdStorageDashboard() {
                       </Link>
                     </td>
                   </tr>
-                ))
+                );
+                })
               ) : (
                 <tr>
                   <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
@@ -210,44 +219,14 @@ export default function ColdStorageDashboard() {
           </table>
         </div>
 
-        {!loading && rows.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Menampilkan {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, rows.length)} dari {rows.length}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-dark-section dark:text-gray-100"
-              >
-                {[10, 20, 50].map((n) => (
-                  <option key={n} value={n}>
-                    {n} / halaman
-                  </option>
-                ))}
-              </select>
-              <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                Sebelumnya
-              </Button>
-              <span className="text-xs text-gray-600 dark:text-gray-200">
-                {page} / {totalPages}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Berikutnya
-              </Button>
-            </div>
-          </div>
-        )}
+        <TableListPaginationFooter
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          onPageChange={pagination.setPage}
+          disabled={loading}
+          show={!loading && pagination.totalCount > 0}
+        />
       </section>
     </div>
   );

@@ -6,6 +6,7 @@
 
 import apiClient from "./api";
 import type { ApiResponse } from "@/types/api";
+import type { PagedResponse } from "@/types/report";
 import type {
   AssignLocationContextResponse,
   AssignLocationRequest,
@@ -141,6 +142,13 @@ export async function listDisposalHistory(batchId?: number) {
   return unwrap(resp);
 }
 
+export async function listDisposalHistoryPaged(page = 0, size = 10, batchId?: number) {
+  const resp = await apiClient.get<ApiResponse<PagedResponse<DisposalResponse>>>(`${BASE}/disposals`, {
+    params: { paged: true, page, size, batchId: batchId ?? undefined },
+  });
+  return unwrap(resp);
+}
+
 export async function moveBatch(payload: MoveBatchRequest) {
   const resp = await apiClient.post<ApiResponse<MoveBatchResponse>>(
     "/storage/move",
@@ -235,6 +243,10 @@ export async function finalizeStockOpnameSession(sessionId: number) {
     `${BASE}/stock-opname/sessions/${sessionId}/finalize`
   );
   return unwrap(resp);
+}
+
+export async function deleteStockOpnameSession(sessionId: number) {
+  await apiClient.delete(`${BASE}/stock-opname/sessions/${sessionId}`);
 }
 
 export async function mergeColdStorageBatches(payload: BatchMergePayload) {

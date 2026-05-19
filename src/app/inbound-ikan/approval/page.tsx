@@ -6,10 +6,11 @@ import AppShell from "@/components/layout/AppShell";
 import Link from "next/link";
 import { type InboundReceiptRow, getInboundReceipts } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
+const APPROVAL_ROLES = ["WAREHOUSE_ADMIN", "SUPERADMIN"] as const;
 
 export default function InboundApprovalPage() {
   return (
-    <ProtectedRoute allowedRoles={["WAREHOUSE_ADMIN", "KEPALA_CABANG", "SUPERADMIN"]}>
+    <ProtectedRoute allowedRoles={[...APPROVAL_ROLES]}>
       <AppShell>
         <InboundApprovalContent />
       </AppShell>
