@@ -29,6 +29,15 @@ export interface MasterBatchResponse {
   supplierName: string;
   status: BatchStatus;
   qualityGrade: QualityGrade;
+  poId?: number | null;
+  poCode?: string | null;
+  inboundReceiptId?: string | null;
+  inboundReceiptCode?: string | null;
+  inboundLineId?: string | null;
+  kandangMacanCode?: string | null;
+  fishSkuId?: number | null;
+  fishSkuCode?: string | null;
+  weighingLogId?: string | null;
   createdBy: string;
   createdAt: string;
   updatedBy: string;
@@ -92,8 +101,61 @@ export interface BatchEventLog {
   actorName: string;
 }
 
+export interface ReceivingGroupSummary {
+  receiptId: string;
+  receiptCode: string;
+  poId?: number | null;
+  poCode?: string | null;
+  tanggalPenerimaan: string | null;
+  supplierName: string | null;
+  status: string | null;
+  receivedQuantityKg: number | string | null;
+  batchCount: number;
+  currentQuantityKg: number | string | null;
+  speciesNames: string[];
+}
+
+export interface BatchCompositionItem {
+  weighingLogId: string | null;
+  basketNo: number | null;
+  fishSkuId: number | null;
+  fishSkuCode: string | null;
+  gradeCode: string | null;
+  gradeName: string | null;
+  itemSize: string | null;
+  rejectBasket: boolean | null;
+  netKg: number | string | null;
+}
+
+export interface BatchMergeLineageItem {
+  lineageId: number;
+  relationType: "DONOR_TO_THIS_BATCH" | "THIS_BATCH_DONATED_TO" | string;
+  survivorBatchId: number | null;
+  survivorBatchNumber: string | null;
+  donorBatchId: number | null;
+  donorBatchNumber: string | null;
+  donorInboundReceiptId: string | null;
+  transferredQtyKg: number | string | null;
+  createdAt: string | null;
+  createdBy: string | null;
+}
+
+export interface BatchTimelineItem {
+  timestamp: string | null;
+  type: string;
+  title: string;
+  description: string;
+  actor: string | null;
+}
+
 export interface BatchTraceabilityResponse {
-  batchDetails: MasterBatchResponse;
+  traceabilityMode?: "BATCH" | "RECEIVING_GROUP" | string;
+  receivingGroup?: ReceivingGroupSummary | null;
+  batchDetails?: MasterBatchResponse | null;
+  childBatches?: MasterBatchResponse[];
+  composition?: BatchCompositionItem[];
+  mergeLineage?: BatchMergeLineageItem[];
+  batchTimeline?: BatchTimelineItem[];
   upstream: TraceabilityNode[];
   downstream: TraceabilityNode[];
   eventLogs: BatchEventLog[];

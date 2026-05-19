@@ -7,7 +7,7 @@
 
 import apiClient from "./api";
 import type { ApiResponse } from "@/types/api";
-import type { MasterBatchResponse, MasterBatchRequest } from "@/types/batch";
+import type { MasterBatchResponse, MasterBatchRequest, ReceivingGroupSummary } from "@/types/batch";
 
 const BASE = "/v1/batch/master-batches";
 
@@ -30,4 +30,14 @@ export const masterBatchApi = {
 
   getTraceability: (id: number) =>
     apiClient.get<ApiResponse<import("@/types/batch").BatchTraceabilityResponse>>(`${BASE}/${id}/traceability`),
+
+  getReceivingGroups: (search?: string) =>
+    apiClient.get<ApiResponse<ReceivingGroupSummary[]>>(`${BASE}/receiving-groups`, {
+      params: search ? { search } : undefined,
+    }),
+
+  getReceivingGroupTraceability: (receiptId: string) =>
+    apiClient.get<ApiResponse<import("@/types/batch").BatchTraceabilityResponse>>(
+      `${BASE}/receiving-groups/${receiptId}/traceability`
+    ),
 };
