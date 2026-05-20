@@ -21,7 +21,7 @@ import { alertErrorClass, formatDateDdMmYyyy, inputClass } from "@/lib/coldstora
 import type { ColdStorageData, ColdStorageStockRow, StockCategoryStatus } from "@/types";
 
 const STATUS_OPTIONS: StockCategoryStatus[] = ["FRESH", "WARNING", "EXPIRED", "QUARANTINE"];
-type BreakdownView = "chart" | "table";
+const KANDANG_NOMINAL_KG = 650;
 
 function toNumber(value: number | string | null | undefined): number {
   if (value == null || value === "") return 0;
@@ -33,6 +33,19 @@ function formatKg(value: number): string {
   return `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
 }
 
+/** Utilisasi kandang macan per batch: stok (kg) / kapasitas nominal × 100. */
+function resolveKandangUtilizationPct(row: ColdStorageStockRow): number | null {
+  const fromApi = toNumber(row.kandangUtilizationPct);
+  if (fromApi > 0) return fromApi;
+  const stockKg = toNumber(row.jumlahStok);
+  if (stockKg <= 0) return null;
+  const nominal =
+    toNumber(row.kandangNominalCapacityKg) > 0
+      ? toNumber(row.kandangNominalCapacityKg)
+      : KANDANG_NOMINAL_KG;
+  return (stockKg / nominal) * 100;
+}
+
 export default function ColdStorageDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +53,6 @@ export default function ColdStorageDashboard() {
   const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
   const [warehouseId, setWarehouseId] = useState<number | "">("");
   const [kategoriStatus, setKategoriStatus] = useState<StockCategoryStatus | "">("");
-  const [breakdownView, setBreakdownView] = useState<BreakdownView>("chart");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   async function loadData() {
     setLoading(true);
@@ -76,8 +88,8 @@ export default function ColdStorageDashboard() {
     rows.forEach((r) => {
       totals[r.kategoriStatus] = (totals[r.kategoriStatus] ?? 0) + 1;
       totalStockKg += toNumber(r.jumlahStok);
-      const util = toNumber(r.kandangUtilizationPct);
-      if (util > 0) {
+      const util = resolveKandangUtilizationPct(r);
+      if (util != null) {
         utilizationSum += util;
         utilizationCount += 1;
       }
@@ -164,80 +176,30 @@ export default function ColdStorageDashboard() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Breakdown Status Stok</h2>
-          <div className="inline-flex rounded-lg border border-gray-200 p-1 text-xs dark:border-gray-700">
-            {(["chart", "table"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setBreakdownView(mode)}
-                className={`rounded-md px-3 py-1.5 font-semibold ${
-                  breakdownView === mode
-                    ? "bg-cyan text-white"
-                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
-                }`}
-              >
-                {mode === "chart" ? "Chart" : "Tabel"}
-              </button>
-            ))}
-          </div>
+        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Breakdown Status Stok</h2>
+        <div className="space-y-3">
+          {statusBreakdown.map((item) => (
+            <button
+              key={item.status}
+              type="button"
+              onClick={() => setKategoriStatus(item.status)}
+              className="grid w-full grid-cols-[96px_1fr_120px] items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-cyan/5"
+            >
+              <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
+                {item.status}
+              </span>
+              <span className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                <span
+                  className="block h-full rounded-full bg-cyan"
+                  style={{ width: `${Math.max(4, (item.stockKg / maxBreakdownStock) * 100)}%` }}
+                />
+              </span>
+              <span className="text-right text-xs text-gray-600 dark:text-gray-300">
+                {item.batchCount} batch · {formatKg(item.stockKg)}
+              </span>
+            </button>
+          ))}
         </div>
-
-        {breakdownView === "chart" ? (
-          <div className="space-y-3">
-            {statusBreakdown.map((item) => (
-              <button
-                key={item.status}
-                type="button"
-                onClick={() => setKategoriStatus(item.status)}
-                className="grid w-full grid-cols-[96px_1fr_120px] items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-cyan/5"
-              >
-                <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
-                  {item.status}
-                </span>
-                <span className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                  <span
-                    className="block h-full rounded-full bg-cyan"
-                    style={{ width: `${Math.max(4, (item.stockKg / maxBreakdownStock) * 100)}%` }}
-                  />
-                </span>
-                <span className="text-right text-xs text-gray-600 dark:text-gray-300">
-                  {item.batchCount} batch · {formatKg(item.stockKg)}
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 text-right">Batch</th>
-                  <th className="px-3 py-2 text-right">Total Stok</th>
-                </tr>
-              </thead>
-              <tbody>
-                {statusBreakdown.map((item) => (
-                  <tr
-                    key={item.status}
-                    onClick={() => setKategoriStatus(item.status)}
-                    className="cursor-pointer border-b border-gray-100 hover:bg-cyan/5 dark:border-gray-800"
-                  >
-                    <td className="px-3 py-2">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{item.batchCount}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatKg(item.stockKg)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
