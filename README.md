@@ -192,7 +192,6 @@ The axios client in `src/lib/api.ts` handles all HTTP communication.
 - **Base URL** — reads from `NEXT_PUBLIC_API_URL`
 - **JWT injection** — automatically attaches `Authorization: Bearer <token>` from `localStorage`
 - **401 handling** — clears token and redirects to `/login`
-- **Timeout** — 10 seconds
 
 ### Usage
 
