@@ -21,6 +21,17 @@ import { alertErrorClass, formatDateDdMmYyyy, inputClass } from "@/lib/coldstora
 import type { ColdStorageData, ColdStorageStockRow, StockCategoryStatus } from "@/types";
 
 const STATUS_OPTIONS: StockCategoryStatus[] = ["FRESH", "WARNING", "EXPIRED", "QUARANTINE"];
+type BreakdownView = "chart" | "table";
+
+function toNumber(value: number | string | null | undefined): number {
+  if (value == null || value === "") return 0;
+  const parsed = typeof value === "string" ? Number(value.replace(",", ".")) : value;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatKg(value: number): string {
+  return `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
+}
 
 export default function ColdStorageDashboard() {
   const [loading, setLoading] = useState(true);
@@ -29,6 +40,8 @@ export default function ColdStorageDashboard() {
   const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
   const [warehouseId, setWarehouseId] = useState<number | "">("");
   const [kategoriStatus, setKategoriStatus] = useState<StockCategoryStatus | "">("");
+  const [breakdownView, setBreakdownView] = useState<BreakdownView>("chart");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   async function loadData() {
     setLoading(true);
     setError(null);
@@ -42,6 +55,7 @@ export default function ColdStorageDashboard() {
       ]);
       setColdStorages(coldStorageData.filter((cs) => cs.isActive));
       setRows(stocksData);
+      setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat dashboard Cold Storage");
     } finally {
@@ -56,11 +70,35 @@ export default function ColdStorageDashboard() {
 
   const summary = useMemo(() => {
     const totals = { FRESH: 0, WARNING: 0, EXPIRED: 0, QUARANTINE: 0, DISPOSED: 0 };
+    let totalStockKg = 0;
+    let utilizationSum = 0;
+    let utilizationCount = 0;
     rows.forEach((r) => {
       totals[r.kategoriStatus] = (totals[r.kategoriStatus] ?? 0) + 1;
+      totalStockKg += toNumber(r.jumlahStok);
+      const util = toNumber(r.kandangUtilizationPct);
+      if (util > 0) {
+        utilizationSum += util;
+        utilizationCount += 1;
+      }
     });
-    return totals;
+    return {
+      ...totals,
+      totalStockKg,
+      activeBatchCount: rows.length,
+      averageUtilizationPct: utilizationCount ? utilizationSum / utilizationCount : 0,
+    };
   }, [rows]);
+
+  const statusBreakdown = useMemo(() => {
+    return STATUS_OPTIONS.map((status) => {
+      const matching = rows.filter((row) => row.kategoriStatus === status);
+      const stockKg = matching.reduce((sum, row) => sum + toNumber(row.jumlahStok), 0);
+      return { status, batchCount: matching.length, stockKg };
+    });
+  }, [rows]);
+
+  const maxBreakdownStock = Math.max(...statusBreakdown.map((item) => item.stockKg), 1);
 
   const pagination = useClientTablePagination(rows, {
     resetDeps: [warehouseId, kategoriStatus],
@@ -73,6 +111,9 @@ export default function ColdStorageDashboard() {
           <h1 className="text-2xl font-bold text-navy dark:text-white">Cold Storage Monitor</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Lokasi penyimpanan untuk batch (kandang macan) yang telah diterima
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Last updated: {lastUpdated ? lastUpdated.toLocaleString("id-ID") : "—"}
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -113,12 +154,90 @@ export default function ColdStorageDashboard() {
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <SummaryCard title="Total" value={rows.length} tone="slate" />
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <SummaryCard title="Batch Aktif" value={summary.activeBatchCount} tone="slate" />
+        <SummaryCard title="Total Stok" value={formatKg(summary.totalStockKg)} tone="slate" />
         <SummaryCard title="Fresh" value={summary.FRESH} tone="green" />
         <SummaryCard title="Warning" value={summary.WARNING} tone="yellow" />
         <SummaryCard title="Expired" value={summary.EXPIRED} tone="red" />
-        <SummaryCard title="Quarantine" value={summary.QUARANTINE} tone="slate" />
+        <SummaryCard title="Utilisasi Avg" value={`${summary.averageUtilizationPct.toFixed(1)}%`} tone="slate" />
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Breakdown Status Stok</h2>
+          <div className="inline-flex rounded-lg border border-gray-200 p-1 text-xs dark:border-gray-700">
+            {(["chart", "table"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setBreakdownView(mode)}
+                className={`rounded-md px-3 py-1.5 font-semibold ${
+                  breakdownView === mode
+                    ? "bg-cyan text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+                }`}
+              >
+                {mode === "chart" ? "Chart" : "Tabel"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {breakdownView === "chart" ? (
+          <div className="space-y-3">
+            {statusBreakdown.map((item) => (
+              <button
+                key={item.status}
+                type="button"
+                onClick={() => setKategoriStatus(item.status)}
+                className="grid w-full grid-cols-[96px_1fr_120px] items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-cyan/5"
+              >
+                <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
+                  {item.status}
+                </span>
+                <span className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                  <span
+                    className="block h-full rounded-full bg-cyan"
+                    style={{ width: `${Math.max(4, (item.stockKg / maxBreakdownStock) * 100)}%` }}
+                  />
+                </span>
+                <span className="text-right text-xs text-gray-600 dark:text-gray-300">
+                  {item.batchCount} batch · {formatKg(item.stockKg)}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-right">Batch</th>
+                  <th className="px-3 py-2 text-right">Total Stok</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statusBreakdown.map((item) => (
+                  <tr
+                    key={item.status}
+                    onClick={() => setKategoriStatus(item.status)}
+                    className="cursor-pointer border-b border-gray-100 hover:bg-cyan/5 dark:border-gray-800"
+                  >
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{item.batchCount}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatKg(item.stockKg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
@@ -238,7 +357,7 @@ function SummaryCard({
   tone,
 }: {
   title: string;
-  value: number;
+  value: number | string;
   tone: "slate" | "green" | "yellow" | "red";
 }) {
   const toneClass =
