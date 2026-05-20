@@ -41,20 +41,20 @@ export default function QuotationsPage() {
    ================================================================ */
 
 const STATUS_STYLE: Record<QuotationStatus, string> = {
-  DRAFT:     "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-  SENT:      "bg-cyan/10 text-cyan",
-  APPROVED:  "bg-green-light text-green",
-  REJECTED:  "bg-red-light text-red",
-  EXPIRED:   "bg-yellow-light text-yellow",
+  DRAFT: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+  SENT: "bg-cyan/10 text-cyan",
+  APPROVED: "bg-green-light text-green",
+  REJECTED: "bg-red-light text-red",
+  EXPIRED: "bg-yellow-light text-yellow",
   CONVERTED: "bg-navy/10 text-navy dark:bg-white/10 dark:text-gray-300",
 };
 
 const STATUS_LABEL: Record<QuotationStatus, string> = {
-  DRAFT:     "Draft",
-  SENT:      "Terkirim",
-  APPROVED:  "Disetujui",
-  REJECTED:  "Ditolak",
-  EXPIRED:   "Kedaluwarsa",
+  DRAFT: "Draft",
+  SENT: "Terkirim",
+  APPROVED: "Disetujui",
+  REJECTED: "Ditolak",
+  EXPIRED: "Kedaluwarsa",
   CONVERTED: "Dikonversi",
 };
 
@@ -86,17 +86,17 @@ type FilterStatus = "" | QuotationStatus;
 
 function QuotationsContent() {
   const [quotations, setQuotations] = useState<QuotationData[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Pagination
-  const [page, setPage]                 = useState(0);
-  const [totalPages, setTotalPages]     = useState(1);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [totalElements, setTotalElements] = useState(0);
 
   // Filters (server-side)
-  const [searchQuery, setSearchQuery]   = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("");
 
   // Debounce search
@@ -104,11 +104,11 @@ function QuotationsContent() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   // Modal states
-  const [statusModal, setStatusModal]   = useState<QuotationData | null>(null);
+  const [statusModal, setStatusModal] = useState<QuotationData | null>(null);
   const [approveModal, setApproveModal] = useState<QuotationData | null>(null);
-  const [rejectModal, setRejectModal]   = useState<QuotationData | null>(null);
+  const [rejectModal, setRejectModal] = useState<QuotationData | null>(null);
   const [convertModal, setConvertModal] = useState<QuotationData | null>(null);
-  const [detailModal, setDetailModal]   = useState<QuotationData | null>(null);
+  const [detailModal, setDetailModal] = useState<QuotationData | null>(null);
 
   /* ── Search debounce ─────────────────────────────── */
   function handleSearchChange(val: string) {
@@ -121,7 +121,7 @@ function QuotationsContent() {
   }
 
   function handleStatusFilter(val: FilterStatus) {
-    setFilterStatus(val === filterStatus ? "" : val);
+    setFilterStatus(val);
     setPage(0);
   }
 
@@ -202,30 +202,21 @@ function QuotationsContent() {
           />
         </div>
 
-        {/* Status filter pills */}
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => handleStatusFilter("")}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
-              ${filterStatus === ""
-                ? "bg-navy text-white dark:bg-white dark:text-navy"
-                : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
-          >
-            Semua
-          </button>
+        {/* Status filter dropdown */}
+        <select
+          value={filterStatus}
+          onChange={(e) => handleStatusFilter(e.target.value as FilterStatus)}
+          className="rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-dark-section
+            dark:text-gray-100 px-3 py-2 text-sm focus:border-cyan focus:outline-none
+            focus:ring-2 focus:ring-cyan/20 transition-colors cursor-pointer"
+        >
+          <option value="">Semua Status</option>
           {QUOTATION_STATUSES.map((s) => (
-            <button
-              key={s.value}
-              onClick={() => handleStatusFilter(s.value)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors
-                ${filterStatus === s.value
-                  ? STATUS_STYLE[s.value] + " ring-1 ring-current"
-                  : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"}`}
-            >
+            <option key={s.value} value={s.value}>
               {s.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       <p className="text-xs text-gray-400">
@@ -349,7 +340,6 @@ function QuotationsContent() {
 
             {/* Page numbers */}
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              // Kalau total <= 7, tampil semua. Kalau > 7, tampil window 5 di sekitar halaman aktif.
               let pageNum: number;
               if (totalPages <= 7) {
                 pageNum = i;
@@ -444,8 +434,8 @@ function ActionBtn({
   const colorClass = color === "green"
     ? "text-green hover:bg-green-light"
     : color === "red"
-    ? "text-red hover:bg-red-light"
-    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-white/10";
+      ? "text-red hover:bg-red-light"
+      : "text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-white/10";
 
   return (
     <button
@@ -471,20 +461,20 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
     setErrorMsg(null);
     try {
       const fileResp = await quotationApi.downloadPdf(q.id);
-      
+
       const blobUrl = window.URL.createObjectURL(new Blob([fileResp.data]));
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = blobUrl;
-      
-      const contentDisposition = fileResp.headers['content-disposition'];
+
+      const contentDisposition = fileResp.headers["content-disposition"];
       let fileName = `quotation_${q.quotationNumber}.pdf`;
-      if (contentDisposition && contentDisposition.includes('filename=')) {
+      if (contentDisposition && contentDisposition.includes("filename=")) {
         const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
         if (matches != null && matches[1]) {
-          fileName = matches[1].replace(/['"]/g, '');
+          fileName = matches[1].replace(/['"]/g, "");
         }
       }
-      
+
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
@@ -492,7 +482,7 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
       window.URL.revokeObjectURL(blobUrl);
     } catch (e: any) {
       console.error(e);
-      setErrorMsg(e.response?.data?.message || 'Gagal mengunduh PDF');
+      setErrorMsg(e.response?.data?.message || "Gagal mengunduh PDF");
       setTimeout(() => setErrorMsg(null), 3000);
     } finally {
       setDownloading(false);
@@ -504,20 +494,20 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
       <div className="space-y-4 relative">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {([
-            ["Customer",          q.customerName],
-            ["Status",            <StatusBadge key="s" status={q.status} />],
-            ["Tanggal Terbit",    new Date(q.dateIssued).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
-            ["Berlaku Hingga",    new Date(q.dateValid).toLocaleDateString("id-ID",   { day: "2-digit", month: "long", year: "numeric" })],
-            ["Metode Pengiriman", q.deliveryMethod  || "—"],
+            ["Customer", q.customerName],
+            ["Status", <StatusBadge key="s" status={q.status} />],
+            ["Tanggal Terbit", new Date(q.dateIssued).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
+            ["Berlaku Hingga", new Date(q.dateValid).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
+            ["Metode Pengiriman", q.deliveryMethod || "—"],
             ["Lokasi Pengiriman", q.deliveryLocation || "—"],
-            ["Dibuat Oleh",       q.createdBy       || "—"],
-            ["Catatan",           q.notes           || "—"],
+            ["Dibuat Oleh", q.createdBy || "—"],
+            ["Catatan", q.notes || "—"],
             ...(q.approvedBy ? [
               ["Disetujui Oleh", q.approvedBy],
               ["Waktu Disetujui", q.approvedAt ? new Date(q.approvedAt).toLocaleString("id-ID") : "—"],
             ] : []),
             ...(q.rejectedBy ? [
-              ["Ditolak Oleh",   q.rejectedBy],
+              ["Ditolak Oleh", q.rejectedBy],
               ["Alasan Penolakan", q.rejectionReason || "—"],
             ] : []),
           ] as [string, React.ReactNode][]).map(([label, val]) => (
@@ -562,9 +552,9 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
         {/* Totals */}
         <div className="rounded-lg bg-gray-50 dark:bg-dark-section p-3 text-sm space-y-1.5">
           {[
-            ["Subtotal",    formatRupiah(q.subtotal)],
-            ["PPN",         q.ppnRate != null ? `${(q.ppnRate * 100).toFixed(0)}%` : "—"],
-            ["PPN Amount",  formatRupiah(q.ppnAmount)],
+            ["Subtotal", formatRupiah(q.subtotal)],
+            ["PPN", q.ppnRate != null ? `${(q.ppnRate * 100).toFixed(0)}%` : "—"],
+            ["PPN Amount", formatRupiah(q.ppnAmount)],
           ].map(([label, val]) => (
             <div key={String(label)} className="flex justify-between text-gray-500">
               <span>{label}</span><span>{val}</span>
