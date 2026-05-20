@@ -173,7 +173,7 @@ export const mainMenu: MenuItem[] = [
     icon: LuChartBar,
     children: [
       { key: "report-generate", label: "Generate Laporan", href: "/reports" },
-      { key: "report-history", label: "Riwayat Laporan", href: "/reports/history" },
+      { key: "report-history",  label: "Riwayat Laporan",  href: "/reports/history" },
     ],
   },
 ];
