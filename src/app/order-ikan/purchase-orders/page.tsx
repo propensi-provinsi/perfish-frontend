@@ -114,7 +114,7 @@ function PurchaseOrdersContent() {
         </div>
         {canManagePo && (
           <button onClick={() => setShowAdd(true)} className={actionBtn("primary")}>
-            + Buat Purchase Order
+            + Tambah PO
           </button>
         )}
       </section>
@@ -379,8 +379,8 @@ function AddPOModal({
   onSuccess,
   onError,
   initialData,
-  title = "Buat Purchase Order Baru",
-  submitLabel = "Buat Purchase Order",
+  title = "Tambah PO",
+  submitLabel = "Simpan PO",
   submitFn,
 }: {
   onClose: () => void;

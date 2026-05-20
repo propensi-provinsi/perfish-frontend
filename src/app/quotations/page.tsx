@@ -149,6 +149,18 @@ function QuotationsContent() {
 
   useEffect(() => { fetchQuotations(); }, [fetchQuotations]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("created") !== "1") return;
+
+    setSuccessMsg("Quotation berhasil dibuat");
+    const timer = setTimeout(() => setSuccessMsg(null), 3500);
+    params.delete("created");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    return () => clearTimeout(timer);
+  }, []);
+
   function showSuccess(msg: string) {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(null), 3500);
@@ -480,9 +492,10 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
       a.click();
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const axiosErr = e as { response?: { data?: { message?: string } } };
       console.error(e);
-      setErrorMsg(e.response?.data?.message || "Gagal mengunduh PDF");
+      setErrorMsg(axiosErr.response?.data?.message || 'Gagal mengunduh PDF');
       setTimeout(() => setErrorMsg(null), 3000);
     } finally {
       setDownloading(false);
@@ -494,11 +507,13 @@ function DetailModal({ quotation: q, onClose }: { quotation: QuotationData; onCl
       <div className="space-y-4 relative">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {([
-            ["Customer", q.customerName],
-            ["Status", <StatusBadge key="s" status={q.status} />],
-            ["Tanggal Terbit", new Date(q.dateIssued).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
-            ["Berlaku Hingga", new Date(q.dateValid).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
-            ["Metode Pengiriman", q.deliveryMethod || "—"],
+            ["Customer",          q.customerName],
+            ["Status",            <StatusBadge key="s" status={q.status} />],
+            ["Tanggal Terbit",    new Date(q.dateIssued).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
+            ["Berlaku Hingga",    new Date(q.dateValid).toLocaleDateString("id-ID",   { day: "2-digit", month: "long", year: "numeric" })],
+            ["Tipe Penjualan",     q.salesType || "—"],
+            ["Metode Pembayaran",  q.paymentMethod || "—"],
+            ["Metode Pengiriman", q.deliveryMethod  || "—"],
             ["Lokasi Pengiriman", q.deliveryLocation || "—"],
             ["Dibuat Oleh", q.createdBy || "—"],
             ["Catatan", q.notes || "—"],

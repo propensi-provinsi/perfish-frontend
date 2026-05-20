@@ -176,10 +176,11 @@ function NewQuotationContent() {
     setSubmitting(true);
     try {
       await apiClient.post<ApiResponse<QuotationData>>("/v1/quotations", payload);
-      router.push("/quotations");
-    } catch (err: any) {
-      if (err.response?.data?.fieldErrors) setFieldErrors(err.response.data.fieldErrors);
-      else setError(err.response?.data?.message || "Gagal membuat quotation");
+      router.push("/quotations?created=1");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { fieldErrors?: Record<string, string>; message?: string } } };
+      if (axiosErr.response?.data?.fieldErrors) setFieldErrors(axiosErr.response.data.fieldErrors);
+      else setError(axiosErr.response?.data?.message || "Gagal membuat quotation");
     } finally {
       setSubmitting(false);
     }
