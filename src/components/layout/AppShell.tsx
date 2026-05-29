@@ -6,11 +6,13 @@ import TopHeader from "./TopHeader";
 
 interface AppShellProps {
   children: ReactNode;
+  /** Override `<main>` classes (e.g. home hero: no padding, no scroll). */
+  mainClassName?: string;
 }
 
 const COLLAPSED_KEY = "sidebar-collapsed";
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({ children, mainClassName }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -43,7 +45,14 @@ export default function AppShell({ children }: AppShellProps) {
       >
         <TopHeader onMenuClick={() => setMobileOpen(true)} />
 
-        <main className="p-4 md:p-6 text-gray-900 dark:text-gray-100">{children}</main>
+        <main
+          className={
+            mainClassName ??
+            "p-4 md:p-6 text-gray-900 dark:text-gray-100"
+          }
+        >
+          {children}
+        </main>
       </div>
     </div>
   );
