@@ -113,6 +113,7 @@ export type InboundReceiptRow = {
   rejectedAt?: string | null;
   rejectedBy?: string | null;
   rejectedReason?: string | null;
+  palletized?: boolean;
   lines: InboundLineRow[];
 };
 
@@ -169,6 +170,7 @@ export type WeighingLogRow = {
   isRejectBasket?: boolean | null;
   rejectedWeightKg?: number | string | null;
   rejectReasonId?: number | null;
+  rejectReasonNote?: string | null;
   qcSuhuSesuaiStandar?: boolean | null;
   weighedAt: string;
   weighedBy: string;
@@ -208,6 +210,8 @@ export async function getInboundReceipts(filters?: {
   supplierId?: string;
   startDate?: string;
   endDate?: string;
+  receiptCode?: string;
+  poCode?: string;
 }) {
   const { data } = await apiClient.get<ApiResponse<InboundReceiptRow[]>>("/inbound-ikan", {
     params: {
@@ -215,6 +219,8 @@ export async function getInboundReceipts(filters?: {
       supplierId: filters?.supplierId || undefined,
       startDate: filters?.startDate || undefined,
       endDate: filters?.endDate || undefined,
+      receiptCode: filters?.receiptCode?.trim() || undefined,
+      poCode: filters?.poCode?.trim() || undefined,
     },
   });
   return data.data ?? [];
@@ -250,7 +256,7 @@ export async function updateWeighingLog(
     suhuPenerimaan: number;
     itemSize: string;
     isRejectBasket: boolean;
-    rejectReasonId?: number | null;
+    rejectReasonNote?: string | null;
   }
 ) {
   const { data } = await apiClient.put<ApiResponse<WeighingLogRow>>(`/inbound-ikan/${receiptId}/weighing-log/${logId}`, {
@@ -261,7 +267,7 @@ export async function updateWeighingLog(
     suhu_penerimaan: payload.suhuPenerimaan,
     item_size: payload.itemSize.trim(),
     is_reject_basket: payload.isRejectBasket,
-    reject_reason_id: payload.isRejectBasket ? (payload.rejectReasonId ?? null) : null,
+    reject_reason_note: payload.isRejectBasket ? (payload.rejectReasonNote?.trim() || null) : null,
   });
   return data.data;
 }
@@ -291,7 +297,7 @@ export async function submitWeighingLog(
     suhuPenerimaan: number;
     itemSize: string;
     isRejectBasket: boolean;
-    rejectReasonId?: number | null;
+    rejectReasonNote?: string | null;
   }
 ) {
   const { data } = await apiClient.post<ApiResponse<WeighingLogRow>>(`/inbound-ikan/${receiptId}/weighing-log`, {
@@ -302,7 +308,7 @@ export async function submitWeighingLog(
     suhu_penerimaan: payload.suhuPenerimaan,
     item_size: payload.itemSize.trim(),
     is_reject_basket: payload.isRejectBasket,
-    reject_reason_id: payload.isRejectBasket ? (payload.rejectReasonId ?? null) : null,
+    reject_reason_note: payload.isRejectBasket ? (payload.rejectReasonNote?.trim() || null) : null,
   });
   return data.data;
 }

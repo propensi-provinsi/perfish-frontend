@@ -6,6 +6,9 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { HiOutlineChevronDown } from "react-icons/hi2";
 import { useAuth } from "@/context/AuthContext";
+import { usePendingApprovalSidebarCounts } from "@/hooks/usePendingApprovalSidebarCounts";
+import { pendingCountForMenuSubtree } from "@/lib/coldstorage-approval-inbox";
+import { canViewColdStorageApprovals } from "@/lib/rbac";
 import { bottomMenu, getMainMenuForRole, type MenuItem } from "@/lib/menu";
 
 interface SidebarProps {
@@ -66,6 +69,29 @@ function branchContainsActiveKey(items: MenuItem[], activeKey: string | null): b
   return false;
 }
 
+function PendingApprovalBadge({ count, compact = false }: { count: number; compact?: boolean }) {
+  if (count <= 0) return null;
+  const label = count > 99 ? "99+" : String(count);
+  if (compact) {
+    return (
+      <span
+        className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-bold text-amber-950"
+        title={`${count} persetujuan pending`}
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="ml-auto inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold leading-none text-amber-950"
+      title={`${count} persetujuan pending`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function Sidebar({
   open,
   collapsed,
@@ -75,6 +101,8 @@ export default function Sidebar({
   const pathname = usePathname();
   const { user } = useAuth();
   const menuItems = useMemo(() => getMainMenuForRole(user?.role), [user?.role]);
+  const canShowPending = canViewColdStorageApprovals(user?.role);
+  const { countsByMenuKey } = usePendingApprovalSidebarCounts(canShowPending, pathname);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
   const bestActiveKey = useMemo(
@@ -101,6 +129,8 @@ export default function Sidebar({
   function renderNavItem(item: MenuItem, depth: number): ReactNode {
     const hasChildren = Boolean(item.children?.length);
     const Icon = item.icon;
+    const pendingCount = canShowPending ? pendingCountForMenuSubtree(item, countsByMenuKey) : 0;
+    const showLabels = !collapsed || open;
 
     if (!hasChildren && item.href) {
       const active = item.key === bestActiveKey;
@@ -119,8 +149,18 @@ export default function Sidebar({
             {active && (
               <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r bg-cyan" />
             )}
-            {Icon && depth === 0 && <Icon className="h-5 w-5 shrink-0" />}
-            {(!collapsed || open) && <span>{item.label}</span>}
+            {Icon && depth === 0 && (
+              <span className="relative shrink-0">
+                <Icon className="h-5 w-5" />
+                {collapsed && !open && <PendingApprovalBadge count={pendingCount} compact />}
+              </span>
+            )}
+            {showLabels && (
+              <>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <PendingApprovalBadge count={pendingCount} />
+              </>
+            )}
           </Link>
         </li>
       );
@@ -144,10 +184,18 @@ export default function Sidebar({
             {branchActive && (
               <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r bg-cyan" />
             )}
-            {Icon && <Icon className={`shrink-0 ${depth === 0 ? "h-5 w-5" : "h-4 w-4 opacity-90"}`} />}
-            {(!collapsed || open) && (
+            {Icon && (
+              <span className={`relative shrink-0 ${depth === 0 ? "" : ""}`}>
+                <Icon className={`shrink-0 ${depth === 0 ? "h-5 w-5" : "h-4 w-4 opacity-90"}`} />
+                {collapsed && !open && depth === 0 && (
+                  <PendingApprovalBadge count={pendingCount} compact />
+                )}
+              </span>
+            )}
+            {showLabels && (
               <>
-                <span className="flex-1 text-left">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                <PendingApprovalBadge count={pendingCount} />
                 <HiOutlineChevronDown
                   className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
                 />

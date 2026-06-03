@@ -82,6 +82,33 @@ export function canApproveInboundReceipt(role?: UserRole | null): boolean {
   return hasAnyRole(role, ["WAREHOUSE_ADMIN", "SUPERADMIN"]);
 }
 
+/** Lihat daftar persetujuan pending cold storage (read-only untuk staff). */
+export function canViewColdStorageApprovals(role?: UserRole | null): boolean {
+  return hasAnyRole(role, WAREHOUSE_STORAGE_FULL_ROLES);
+}
+
+/** Setujui / tolak permintaan operasi cold storage. */
+export function canReviewColdStorageApproval(role?: UserRole | null): boolean {
+  return canApproveInboundReceipt(role);
+}
+
+/** Batch Activity — warehouse + role dengan menu penuh (bukan menu slim). */
+export function canAccessBatchActivity(role?: UserRole | null): boolean {
+  if (!role) return false;
+  if (isSuperAdmin(role)) return true;
+  if (role === "WAREHOUSE_STAFF" || role === "WAREHOUSE_ADMIN") return true;
+  if (role === "KEPALA_CABANG" || role === "SBB_STAFF" || role === "QC_SPECIALIST") return false;
+  return true;
+}
+
+/** Dashboard overview (/dashboard) — tidak untuk warehouse staff/admin & QC. */
+export function canAccessDashboardOverview(role?: UserRole | null): boolean {
+  if (!role) return false;
+  if (isSuperAdmin(role)) return true;
+  if (role === "WAREHOUSE_STAFF" || role === "WAREHOUSE_ADMIN" || role === "QC_SPECIALIST") return false;
+  return true;
+}
+
 /** GET detail inbound (dashboard, ringkasan view more). */
 export const INBOUND_RECEIPT_READ_ROLES: UserRole[] = Array.from(
   new Set<UserRole>([...DASHBOARD_PENERIMAAN_READ_ROLES, ...RINGKASAN_SUPPLIER_ROLES])
@@ -95,7 +122,12 @@ export const WAREHOUSE_STORAGE_FULL_ROLES: UserRole[] = [
   "SUPERADMIN",
 ];
 
-export const STOCK_OPNAME_ROLES: UserRole[] = ["QC_SPECIALIST", "WAREHOUSE_ADMIN", "SUPERADMIN"];
+export const STOCK_OPNAME_ROLES: UserRole[] = [
+  "QC_SPECIALIST",
+  "WAREHOUSE_STAFF",
+  "WAREHOUSE_ADMIN",
+  "SUPERADMIN",
+];
 
 export type ColdStorageNavKey =
   | "monitor"

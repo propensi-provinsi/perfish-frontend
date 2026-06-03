@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
@@ -40,6 +41,12 @@ import {
   TableListPaginationToolbar,
   useClientTablePagination,
 } from "@/components/ui/TableListPagination";
+import {
+  ListFilterField,
+  ListFilterSection,
+  listFilterInputClass,
+} from "@/components/inbound-fish/ListFilterSection";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 
 type MasterRejectReasonResponse = {
   rejectReasonId: number;
@@ -59,6 +66,41 @@ export default function InboundIkanPage() {
 }
 
 type InboundToast = { type: "success" | "error"; message: string } | null;
+
+type DecisionNotice = {
+  id: string;
+  batchCode: string;
+  kind: "approved" | "rejected";
+  at: string;
+  by?: string | null;
+  reason?: string | null;
+};
+
+const APPROVAL_NOTICE_DISMISSED_KEY = "inbound-approval-notices-dismissed";
+
+function decisionNoticeKey(notice: DecisionNotice): string {
+  return `${notice.id}-${notice.kind}`;
+}
+
+function isTodayIso(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+function formatDecisionAt(iso: string): string {
+  const d = new Date(iso);
+  const day = d.getDate();
+  const month = d.getMonth() + 1;
+  const year = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year}, ${hh}.${mm}`;
+}
 
 type InboundFishLineRow = {
   id: string;
@@ -95,6 +137,7 @@ type InboundFishRow = {
   rejectedBy?: string | null;
   rejectedReason?: string | null;
   poCode?: string | null;
+  palletized?: boolean;
   lines: InboundFishLineRow[];
 };
 
@@ -129,6 +172,7 @@ function StatusBadge({ status }: { status: InboundStatus }) {
 
 function InboundIkanContent() {
   const { user } = useAuth();
+  const router = useRouter();
   const [inboundRows, setInboundRows] = useState<InboundFishRow[]>([]);
   const [loadingReceivings, setLoadingReceivings] = useState(false);
   const [showAddPenerimaan, setShowAddPenerimaan] = useState(false);
@@ -138,9 +182,26 @@ function InboundIkanContent() {
   const [filterStatus, setFilterStatus] = useState<InboundStatusFilter>("");
   const [allRows, setAllRows] = useState<InboundFishRow[]>([]);
   const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [filterReceiptCode, setFilterReceiptCode] = useState("");
+  const [filterPoCode, setFilterPoCode] = useState("");
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
+  const [approvalPanelHidden, setApprovalPanelHidden] = useState(false);
+  const [dismissedNoticeKeys, setDismissedNoticeKeys] = useState<Set<string>>(() => new Set());
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(APPROVAL_NOTICE_DISMISSED_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as string[];
+      if (Array.isArray(parsed)) {
+        setDismissedNoticeKeys(new Set(parsed));
+      }
+    } catch {
+      /* ignore malformed storage */
+    }
+  }, []);
 
   const fetchInboundFish = useCallback(async () => {
     setLoadingReceivings(true);
@@ -149,6 +210,8 @@ function InboundIkanContent() {
         supplierId: filterSupplierId || undefined,
         startDate: filterStartDate || undefined,
         endDate: filterEndDate || undefined,
+        receiptCode: filterReceiptCode || undefined,
+        poCode: filterPoCode || undefined,
       });
       const mapped = (list ?? []).map((r) => ({
         ...r,
@@ -158,7 +221,7 @@ function InboundIkanContent() {
       setAllRows(mapped);
     } catch { /* interceptor */ }
     finally { setLoadingReceivings(false); }
-  }, [filterSupplierId, filterStartDate, filterEndDate]);
+  }, [filterSupplierId, filterStartDate, filterEndDate, filterReceiptCode, filterPoCode]);
 
   useEffect(() => {
     if (!filterStatus) {
@@ -173,7 +236,15 @@ function InboundIkanContent() {
   }, [allRows, filterStatus]);
 
   const pagination = useClientTablePagination(inboundRows, {
-    resetDeps: [filterStatus, filterSupplierId, filterStartDate, filterEndDate, allRows.length],
+    resetDeps: [
+      filterStatus,
+      filterSupplierId,
+      filterReceiptCode,
+      filterPoCode,
+      filterStartDate,
+      filterEndDate,
+      allRows.length,
+    ],
   });
 
   useEffect(() => { queueMicrotask(() => { void fetchInboundFish(); }); }, [fetchInboundFish]);
@@ -188,6 +259,58 @@ function InboundIkanContent() {
     })();
   }, []);
 
+  const recentDecisionNotices = useMemo((): DecisionNotice[] => {
+    const notices: DecisionNotice[] = [];
+    for (const row of allRows) {
+      if (row.status === "APPROVED" && row.approvedAt) {
+        notices.push({
+          id: row.id,
+          batchCode: row.batchCode,
+          kind: "approved",
+          at: row.approvedAt,
+          by: row.approvedBy,
+        });
+      } else if (row.status === "REJECTED" && row.rejectedAt) {
+        notices.push({
+          id: row.id,
+          batchCode: row.batchCode,
+          kind: "rejected",
+          at: row.rejectedAt,
+          by: row.rejectedBy,
+          reason: row.rejectedReason,
+        });
+      }
+    }
+    return notices
+      .filter((item) => isTodayIso(item.at))
+      .filter((item) => !dismissedNoticeKeys.has(decisionNoticeKey(item)))
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  }, [allRows, dismissedNoticeKeys]);
+
+  const approvalNoticePagination = useClientTablePagination(recentDecisionNotices, {
+    initialPageSize: 5,
+    resetDeps: [recentDecisionNotices.length, dismissedNoticeKeys.size],
+  });
+
+  function persistDismissedNoticeKeys(keys: Set<string>) {
+    localStorage.setItem(APPROVAL_NOTICE_DISMISSED_KEY, JSON.stringify([...keys]));
+  }
+
+  function dismissApprovalNotice(notice: DecisionNotice) {
+    const key = decisionNoticeKey(notice);
+    setDismissedNoticeKeys((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      persistDismissedNoticeKeys(next);
+      return next;
+    });
+  }
+
+  function handleApprovedNoticeClick(notice: DecisionNotice) {
+    dismissApprovalNotice(notice);
+    router.push(`/inbound-ikan/summary/${notice.id}`);
+  }
   const draftCount = allRows.filter((r) => r.status === "DRAFT").length;
   const inputInProgressCount = allRows.filter((r) => isInputInProgressStatus(r.status)).length;
   const pendingCount = allRows.filter((r) => r.status === "PENDING").length;
@@ -195,6 +318,7 @@ function InboundIkanContent() {
   const rejectedCount = allRows.filter((r) => r.status === "REJECTED").length;
 
   const [qcRow, setQcRow] = useState<InboundFishRow | null>(null);
+  const [approvalConfirmRowId, setApprovalConfirmRowId] = useState<string | null>(null);
   const canCreateReceiving = canCreateInboundReceipt(user?.role);
   const canPalletize = canManagePalletization(user?.role);
   const canSizingGrading = canManageSizingGrading(user?.role);
@@ -207,12 +331,10 @@ function InboundIkanContent() {
   }
 
   async function handleSubmitForApproval(rowId: string) {
-    if (!window.confirm("Selesaikan input dan kirim ke approval? Setelah ini sizing/palletisasi tidak bisa diubah kecuali admin membuka kembali dari sisi teknis.")) {
-      return;
-    }
     setActionLoadingId(rowId);
     try {
       await submitForApproval(rowId);
+      setApprovalConfirmRowId(null);
       setToast({ type: "success", message: "Penerimaan dikirim ke approval." });
       await fetchInboundFish();
     } catch (err: unknown) {
@@ -248,26 +370,23 @@ function InboundIkanContent() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Filter histori dan monitoring penerimaan (real-time).
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setFilterStatus("");
-              setFilterSupplierId("");
-              setFilterStartDate("");
-              setFilterEndDate("");
-            }}
-            className={actionBtn("neutral", "xs")}
+      <ListFilterSection
+        description="Filter histori dan monitoring penerimaan (real-time)."
+        onReset={() => {
+          setFilterStatus("");
+          setFilterSupplierId("");
+          setFilterReceiptCode("");
+          setFilterPoCode("");
+          setFilterStartDate("");
+          setFilterEndDate("");
+        }}
+      >
+        <ListFilterField label="Status">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as InboundStatusFilter)}
+            className={listFilterInputClass}
           >
-            Reset Filter
-          </button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as InboundStatusFilter)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
             <option value="">Semua Status</option>
             <option value="DRAFT">Draft</option>
             <option value="INPUT_IN_PROGRESS">Input In Progress</option>
@@ -275,26 +394,159 @@ function InboundIkanContent() {
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
           </select>
-          <select value={filterSupplierId} onChange={(e) => setFilterSupplierId(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100">
+        </ListFilterField>
+        <ListFilterField label="Supplier">
+          <select value={filterSupplierId} onChange={(e) => setFilterSupplierId(e.target.value)} className={listFilterInputClass}>
             <option value="">Semua Supplier</option>
-            {supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.supplierName}</option>)}
+            {supplierOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.supplierName}
+              </option>
+            ))}
           </select>
-          <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" />
-          <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" />
-        </div>
-      </section>
+        </ListFilterField>
+        <ListFilterField label="Kode Penerimaan">
+          <input
+            type="search"
+            value={filterReceiptCode}
+            onChange={(e) => setFilterReceiptCode(e.target.value)}
+            placeholder="Cari kode penerimaan"
+            maxLength={64}
+            className={listFilterInputClass}
+          />
+        </ListFilterField>
+        <ListFilterField label="Kode PO">
+          <input
+            type="search"
+            value={filterPoCode}
+            onChange={(e) => setFilterPoCode(e.target.value)}
+            placeholder="Cari kode PO"
+            maxLength={64}
+            className={listFilterInputClass}
+          />
+        </ListFilterField>
+        <ListFilterField label="Tanggal Mulai">
+          <input
+            type="date"
+            value={filterStartDate}
+            onChange={(e) => setFilterStartDate(e.target.value)}
+            className={`${listFilterInputClass} dark:[color-scheme:dark]`}
+          />
+        </ListFilterField>
+        <ListFilterField label="Tanggal Akhir">
+          <input
+            type="date"
+            value={filterEndDate}
+            onChange={(e) => setFilterEndDate(e.target.value)}
+            className={`${listFilterInputClass} dark:[color-scheme:dark]`}
+          />
+        </ListFilterField>
+      </ListFilterSection>
 
       <section>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-          <SummaryCard label="Draft" value={loadingReceivings ? "…" : String(draftCount)} />
-          <SummaryCard label="Input In Progress" value={loadingReceivings ? "…" : String(inputInProgressCount)} />
-          <SummaryCard label="Waiting for Approval" value={loadingReceivings ? "…" : String(pendingCount)} />
-          <SummaryCard label="Approved" value={loadingReceivings ? "…" : String(approvedCount)} />
-          <SummaryCard label="Rejected" value={loadingReceivings ? "…" : String(rejectedCount)} />
+          <SummaryCard
+            badgeLabel="Draft"
+            badgeClass={inboundStatusBadgeClass("DRAFT")}
+            value={loadingReceivings ? "…" : String(draftCount)}
+          />
+          <SummaryCard
+            badgeLabel="Input In Progress"
+            badgeClass={inboundStatusBadgeClass("WEIGHING")}
+            value={loadingReceivings ? "…" : String(inputInProgressCount)}
+          />
+          <SummaryCard
+            badgeLabel="Waiting for Approval"
+            badgeClass={inboundStatusBadgeClass("PENDING")}
+            value={loadingReceivings ? "…" : String(pendingCount)}
+          />
+          <SummaryCard
+            badgeLabel="Approved"
+            badgeClass={inboundStatusBadgeClass("APPROVED")}
+            value={loadingReceivings ? "…" : String(approvedCount)}
+          />
+          <SummaryCard
+            badgeLabel="Rejected"
+            badgeClass={inboundStatusBadgeClass("REJECTED")}
+            value={loadingReceivings ? "…" : String(rejectedCount)}
+          />
         </div>
       </section>
 
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
+        {!approvalPanelHidden && recentDecisionNotices.length > 0 && (
+          <div className="border-b border-gray-200 bg-amber-50/60 px-4 py-3 dark:border-gray-700 dark:bg-amber-950/20">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Notifikasi Approval
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Hari ini</span>
+                <button
+                  type="button"
+                  onClick={() => setApprovalPanelHidden(true)}
+                  className={actionBtn("neutral", "xs")}
+                >
+                  Hide
+                </button>
+              </div>
+            </div>
+            <ul className="space-y-1.5 text-sm">
+              {approvalNoticePagination.visibleItems.map((notice) => (
+                <li key={decisionNoticeKey(notice)}>
+                  {notice.kind === "approved" ? (
+                    <button
+                      type="button"
+                      onClick={() => handleApprovedNoticeClick(notice)}
+                      className="w-full rounded-md border border-green-200 bg-green-50 px-3 py-2 text-left text-green-900 transition hover:bg-green-100 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200 dark:hover:bg-green-950/50"
+                    >
+                      <span className="font-bold font-mono">{notice.batchCode}</span>
+                      <span>
+                        {" "}
+                        disetujui oleh {notice.by ?? "—"} ({formatDecisionAt(notice.at)})
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200">
+                      <span className="font-bold font-mono">{notice.batchCode}</span>
+                      <span>
+                        {" "}
+                        ditolak oleh {notice.by ?? "—"}
+                        {notice.reason ? ` — ${notice.reason}` : ""} ({formatDecisionAt(notice.at)})
+                      </span>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {approvalNoticePagination.totalPages > 1 && (
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => approvalNoticePagination.setPage(Math.max(approvalNoticePagination.page - 1, 1))}
+                  disabled={approvalNoticePagination.page <= 1}
+                  className="rounded border border-gray-300 px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
+                  aria-label="Halaman sebelumnya"
+                >
+                  &lt;
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    approvalNoticePagination.setPage(
+                      Math.min(approvalNoticePagination.page + 1, approvalNoticePagination.totalPages),
+                    )
+                  }
+                  disabled={approvalNoticePagination.page >= approvalNoticePagination.totalPages}
+                  className="rounded border border-gray-300 px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
+                  aria-label="Halaman berikutnya"
+                >
+                  &gt;
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="px-4 py-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Penerimaan Ikan</h2>
           {loadingReceivings && <span className="text-xs text-gray-500 dark:text-gray-400">Memuat…</span>}
@@ -329,7 +581,7 @@ function InboundIkanContent() {
                 const done = qcIsDone(row);
                 return (
                     <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50/80 dark:hover:bg-white/5">
-                      <td className="px-4 py-3 font-mono text-xs">{row.batchCode}</td>
+                      <td className="px-4 py-3 font-mono text-xs font-bold">{row.batchCode}</td>
                       <td className="px-4 py-3 text-xs">{row.poCode ?? "—"}</td>
                       <td className="px-4 py-3">{row.supplierName}</td>
                       <td className="px-4 py-3 max-w-[220px] truncate" title={row.coldStorageLabel}>{shortColdStorageLabel(row.coldStorageLabel)}</td>
@@ -362,14 +614,16 @@ function InboundIkanContent() {
                               <Link href={`/inbound-ikan/palletize/${row.id}`} className={actionBtn("success", "xs")}>
                                 Lanjut Paletisasi
                               </Link>
-                              <button
-                                type="button"
-                                onClick={() => void handleSubmitForApproval(row.id)}
-                                disabled={actionLoadingId === row.id}
-                                className={actionBtn("warning", "xs")}
-                              >
-                                Lanjut Ke Approval
-                              </button>
+                              {row.palletized && (
+                                <button
+                                  type="button"
+                                  onClick={() => setApprovalConfirmRowId(row.id)}
+                                  disabled={actionLoadingId === row.id}
+                                  className={actionBtn("warning", "xs")}
+                                >
+                                  Lanjut Ke Approval
+                                </button>
+                              )}
                             </>
                           )}
                           {canApproveReject && row.status === "PENDING" && (
@@ -433,15 +687,58 @@ function InboundIkanContent() {
         />
       )}
 
+      {approvalConfirmRowId && (
+        <ModalOverlay
+          onClose={() => setApprovalConfirmRowId(null)}
+          hideCloseButton
+          panelClassName="max-w-md rounded-2xl border border-gray-200 dark:border-gray-700"
+        >
+          <div className="space-y-4">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Kirim ke Approval</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Selesaikan input dan kirim ke approval. Setelah ini sizing/palletisasi tidak bisa diubah kembali. Apakah anda yakin?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className={actionBtn("neutral")}
+                onClick={() => setApprovalConfirmRowId(null)}
+                disabled={actionLoadingId === approvalConfirmRowId}
+              >
+                Tidak
+              </button>
+              <button
+                type="button"
+                className={actionBtn("success")}
+                disabled={actionLoadingId === approvalConfirmRowId}
+                onClick={() => void handleSubmitForApproval(approvalConfirmRowId)}
+              >
+                {actionLoadingId === approvalConfirmRowId ? "Mengirim…" : "Yakin"}
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
     </div>
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({
+  badgeLabel,
+  badgeClass,
+  value,
+}: {
+  badgeLabel: string;
+  badgeClass: string;
+  value: string;
+}) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card p-6 shadow-sm text-center">
-      <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-dark-card">
+      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass}`}>
+        {badgeLabel}
+      </span>
+      <p className="text-3xl font-bold tabular-nums text-gray-900 dark:text-gray-100">{value}</p>
     </div>
   );
 }
@@ -487,6 +784,16 @@ function AddPenerimaanModal({
 
   const selectedPO = useMemo(() => openPOs.find((p) => p.poId === poId) ?? null, [openPOs, poId]);
 
+  const poOptions = useMemo(
+    () =>
+      openPOs.map((po) => ({
+        value: String(po.poId),
+        label: `${po.poCode} — ${po.supplierName} (${po.expectedArrivalDate})`,
+        searchText: `${po.poCode} ${po.supplierName} ${po.expectedArrivalDate}`,
+      })),
+    [openPOs],
+  );
+
   const inputCls = "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-cyan focus:outline-none focus:ring-1 focus:ring-cyan dark:border-gray-600 dark:bg-dark-card dark:text-gray-100 dark:placeholder:text-gray-400";
 
   const canSubmit = !loadingMasters && poId !== "" && coldStorageId !== "" && tanggalPenerimaan.trim() !== "";
@@ -525,14 +832,14 @@ function AddPenerimaanModal({
 
       <form className="space-y-4" onSubmit={handleSubmit}>
         <Field label="Purchase Order" required>
-          <select value={poId === "" ? "" : poId} onChange={(e) => setPoId(e.target.value === "" ? "" : Number(e.target.value))} disabled={loadingMasters} className={inputCls}>
-            <option value="">{loadingMasters ? "Memuat…" : "Pilih Purchase Order"}</option>
-            {openPOs.map((po) => (
-              <option key={po.poId} value={po.poId}>
-                {po.poCode} — {po.supplierName} ({po.expectedArrivalDate}) [{po.status}]
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={poOptions}
+            value={poId === "" ? "" : String(poId)}
+            onChange={(v) => setPoId(v === "" ? "" : Number(v))}
+            disabled={loadingMasters}
+            placeholder={loadingMasters ? "Memuat…" : "Pilih Purchase Order"}
+            emptyMessage="PO OPEN tidak ditemukan"
+          />
         </Field>
 
         {selectedPO && (
@@ -625,7 +932,7 @@ function QcModal({ row, onClose, onSuccess, onError }: { row: InboundFishRow; on
     row.lines.map((ln) => ({
       lineId: ln.id,
       speciesId: ln.speciesId,
-      speciesLabel: `${ln.speciesCode} — ${ln.speciesName}`,
+      speciesLabel: ln.speciesName,
       size: ln.size,
       bentuk: ln.bentuk,
       formId: ln.formId,

@@ -7,8 +7,13 @@ import AppShell from "@/components/layout/AppShell";
 import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import Button from "@/components/ui/Button";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
+import { formatTonLabel } from "@/lib/coldstorage-format";
 import { getColdStorageStructureDetail } from "@/lib/coldstorage-api";
 import { alertErrorClass } from "@/lib/coldstorage-ui";
+import {
+  formatUtilizationPct,
+  utilizationBadgeClass,
+} from "@/lib/utilization-display";
 import type { ColdStorageStructureDetail } from "@/types/coldstorage";
 
 function fmtKg(v: number | string | null | undefined) {
@@ -16,13 +21,6 @@ function fmtKg(v: number | string | null | undefined) {
   const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
   if (!Number.isFinite(n)) return "—";
   return `${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
-}
-
-function fmtTon(v: number | string | null | undefined) {
-  if (v == null || v === "") return "—";
-  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
-  if (!Number.isFinite(n)) return "—";
-  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 4 })} t`;
 }
 
 function fmtPct(v: number | null | undefined) {
@@ -109,21 +107,30 @@ function ColdStorageStructureDetailInner() {
         <>
           <section className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-dark-card md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Block aktif</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Block Aktif</p>
               <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.blockCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Rack aktif</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Rack Aktif</p>
               <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.rackCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Posisi aktif</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Posisi Aktif</p>
               <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{data.positionCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Stok di gudang (ton)</p>
-              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{fmtTon(data.totalStockTon ?? null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Stok</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatTonLabel(data.totalStockTon ?? null)}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">{fmtKg(data.totalStockKg)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Kapasitas</p>
+              <p className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatTonLabel(data.capacityTon ?? null)}</p>
+              <span
+                className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${utilizationBadgeClass(data.stockUtilizationPct ?? null)}`}
+              >
+                {formatUtilizationPct(data.stockUtilizationPct ?? null)} terpakai
+              </span>
             </div>
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Okupansi posisi</p>
@@ -158,7 +165,7 @@ function ColdStorageStructureDetailInner() {
                 className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card"
               >
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  {block.blockCode} — {block.blockName}
+                  {block.blockCode} ({block.blockName})
                 </h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {block.blockCapacity != null && block.blockCapacity > 0
@@ -173,7 +180,7 @@ function ColdStorageStructureDetailInner() {
                         <table className="min-w-full text-xs">
                           <thead>
                             <tr className="text-left text-gray-500 dark:text-gray-400">
-                              <th className="py-1 pr-3">Kode posisi</th>
+                              <th className="py-1 pr-3">Kode Posisi</th>
                               <th className="py-1 pr-3">Status</th>
                               <th className="py-1 pr-3">Batch</th>
                               <th className="py-1 pr-3 text-right">Stok (kg)</th>

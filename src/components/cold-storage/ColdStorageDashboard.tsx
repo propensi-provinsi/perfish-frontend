@@ -15,58 +15,62 @@ import { isInboundRejectBatchRow, rejectBatchRowClass } from "@/lib/batch-qualit
 import { actionBtn } from "@/lib/ui-action";
 import { getColdStorages } from "@/lib/expiry";
 import { listColdStorageStocks } from "@/lib/coldstorage-api";
+import { dashboardApi } from "@/lib/dashboard-api";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import { stockCategoryStatusBadgeClass } from "@/lib/coldstorage-status";
-import { alertErrorClass, formatDateDdMmYyyy, inputClass } from "@/lib/coldstorage-ui";
+import { alertErrorClass, formatDateDdMmYyyy } from "@/lib/coldstorage-ui";
 import type { ColdStorageData, ColdStorageStockRow, StockCategoryStatus } from "@/types";
+import { ListFilterField, ListFilterSection, listFilterInputClass } from "@/components/inbound-fish/ListFilterSection";
+import {
+  BatchArrivalNoticePanel,
+  useBatchArrivalNotices,
+} from "@/components/cold-storage/BatchArrivalNoticePanel";
+import {
+  StockMonitorSummaryGrid,
+  StockStatusBreakdownSection,
+  stockQtyGreenClass,
+} from "@/components/cold-storage/StockMonitorSummaryCards";
+import {
+  matchesBatchOrReceiptSearch,
+  matchesDateRange,
+  sortByLastActivityDesc,
+  toStockNumber,
+} from "@/lib/stock-list-utils";
 
-const STATUS_OPTIONS: StockCategoryStatus[] = ["FRESH", "WARNING", "EXPIRED", "QUARANTINE"];
-const KANDANG_NOMINAL_KG = 650;
+import {
+  extractUtilizationItems,
+  utilizationForWarehouse,
+} from "@/lib/utilization-display";
 
-function toNumber(value: number | string | null | undefined): number {
-  if (value == null || value === "") return 0;
-  const parsed = typeof value === "string" ? Number(value.replace(",", ".")) : value;
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatKg(value: number): string {
-  return `${value.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
-}
-
-/** Utilisasi kandang macan per batch: stok (kg) / kapasitas nominal × 100. */
-function resolveKandangUtilizationPct(row: ColdStorageStockRow): number | null {
-  const fromApi = toNumber(row.kandangUtilizationPct);
-  if (fromApi > 0) return fromApi;
-  const stockKg = toNumber(row.jumlahStok);
-  if (stockKg <= 0) return null;
-  const nominal =
-    toNumber(row.kandangNominalCapacityKg) > 0
-      ? toNumber(row.kandangNominalCapacityKg)
-      : KANDANG_NOMINAL_KG;
-  return (stockKg / nominal) * 100;
-}
+const MONITOR_STOK_NOTICE_KEY = "monitor-stok-arrival-notices-seen";
+const STATUS_FILTER_OPTIONS: StockCategoryStatus[] = ["FRESH", "WARNING", "EXPIRED", "QUARANTINE"];
 
 export default function ColdStorageDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
-  const [rows, setRows] = useState<ColdStorageStockRow[]>([]);
-  const [warehouseId, setWarehouseId] = useState<number | "">("");
-  const [kategoriStatus, setKategoriStatus] = useState<StockCategoryStatus | "">("");
+  const [allRows, setAllRows] = useState<ColdStorageStockRow[]>([]);
+  const [utilizationItems, setUtilizationItems] = useState<Record<string, unknown>[]>([]);
+  const [filterStatus, setFilterStatus] = useState<StockCategoryStatus | "">("");
+  const [filterWarehouseId, setFilterWarehouseId] = useState<number | "">("");
+  const [filterSpeciesId, setFilterSpeciesId] = useState<number | "">("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
   async function loadData() {
     setLoading(true);
     setError(null);
     try {
-      const [coldStorageData, stocksData] = await Promise.all([
+      const [coldStorageData, stocksData, utilizationData] = await Promise.all([
         getColdStorages(),
-        listColdStorageStocks({
-          warehouseId: warehouseId || undefined,
-          kategoriStatus: kategoriStatus || undefined,
-        }),
+        listColdStorageStocks(),
+        dashboardApi.coldStorageUtilization(),
       ]);
       setColdStorages(coldStorageData.filter((cs) => cs.isActive));
-      setRows(stocksData);
+      setAllRows(sortByLastActivityDesc(stocksData));
+      setUtilizationItems(extractUtilizationItems(utilizationData));
       setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal memuat dashboard Cold Storage");
@@ -77,43 +81,77 @@ export default function ColdStorageDashboard() {
 
   useEffect(() => {
     void loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [warehouseId, kategoriStatus]);
+  }, []);
+
+  const speciesOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const row of allRows) {
+      if (row.speciesId != null && row.speciesName) {
+        map.set(row.speciesId, row.speciesName);
+      }
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], "id"));
+  }, [allRows]);
+
+  const filteredRows = useMemo(() => {
+    return allRows.filter((row) => {
+      if (filterStatus && row.kategoriStatus !== filterStatus) return false;
+      if (filterWarehouseId && row.warehouseId !== filterWarehouseId) return false;
+      if (filterSpeciesId && row.speciesId !== filterSpeciesId) return false;
+      if (!matchesDateRange(row.tanggalMasuk, filterDateFrom, filterDateTo)) return false;
+      if (!matchesBatchOrReceiptSearch(row.batchNumber, row.inboundReceiptCode, filterSearch)) return false;
+      return true;
+    });
+  }, [allRows, filterStatus, filterWarehouseId, filterSpeciesId, filterDateFrom, filterDateTo, filterSearch]);
 
   const summary = useMemo(() => {
-    const totals = { FRESH: 0, WARNING: 0, EXPIRED: 0, QUARANTINE: 0, DISPOSED: 0 };
+    const totals: Record<StockCategoryStatus, number> = {
+      FRESH: 0,
+      WARNING: 0,
+      EXPIRED: 0,
+      QUARANTINE: 0,
+      DISPOSED: 0,
+    };
     let totalStockKg = 0;
-    let utilizationSum = 0;
-    let utilizationCount = 0;
-    rows.forEach((r) => {
+    filteredRows.forEach((r) => {
       totals[r.kategoriStatus] = (totals[r.kategoriStatus] ?? 0) + 1;
-      totalStockKg += toNumber(r.jumlahStok);
-      const util = resolveKandangUtilizationPct(r);
-      if (util != null) {
-        utilizationSum += util;
-        utilizationCount += 1;
-      }
+      totalStockKg += toStockNumber(r.jumlahStok);
     });
     return {
       ...totals,
       totalStockKg,
-      activeBatchCount: rows.length,
-      averageUtilizationPct: utilizationCount ? utilizationSum / utilizationCount : 0,
+      activeBatchCount: filteredRows.length,
+      averageUtilizationPct: utilizationForWarehouse(utilizationItems, filterWarehouseId),
     };
-  }, [rows]);
+  }, [filteredRows, utilizationItems, filterWarehouseId]);
 
-  const statusBreakdown = useMemo(() => {
-    return STATUS_OPTIONS.map((status) => {
-      const matching = rows.filter((row) => row.kategoriStatus === status);
-      const stockKg = matching.reduce((sum, row) => sum + toNumber(row.jumlahStok), 0);
-      return { status, batchCount: matching.length, stockKg };
-    });
-  }, [rows]);
+  const arrivalNotices = useMemo(
+    () =>
+      allRows.map((r) => ({
+        batchId: r.batchId,
+        batchNumber: r.batchNumber,
+        subtitle: `${r.warehouseCode} — ${r.storageArea}`,
+        tanggalMasuk: r.tanggalMasuk ?? null,
+      })),
+    [allRows],
+  );
 
-  const maxBreakdownStock = Math.max(...statusBreakdown.map((item) => item.stockKg), 1);
+  const {
+    notices: newArrivalNotices,
+    panelHidden: arrivalPanelHidden,
+    setPanelHidden: setArrivalPanelHidden,
+    dismissNotice: dismissArrivalNotice,
+  } = useBatchArrivalNotices(arrivalNotices, MONITOR_STOK_NOTICE_KEY);
 
-  const pagination = useClientTablePagination(rows, {
-    resetDeps: [warehouseId, kategoriStatus],
+  const pagination = useClientTablePagination(filteredRows, {
+    resetDeps: [
+      filterStatus,
+      filterWarehouseId,
+      filterSpeciesId,
+      filterDateFrom,
+      filterDateTo,
+      filterSearch,
+    ],
   });
 
   return (
@@ -136,13 +174,67 @@ export default function ColdStorageDashboard() {
 
       {error && <div className={alertErrorClass}>{error}</div>}
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Filter</div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr]">
+      <ListFilterSection
+        description="Filter stok cold storage (real-time)."
+        onReset={() => {
+          setFilterStatus("");
+          setFilterWarehouseId("");
+          setFilterSpeciesId("");
+          setFilterDateFrom("");
+          setFilterDateTo("");
+          setFilterSearch("");
+        }}
+        columnsClass="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
+      >
+        <ListFilterField label="Status">
           <select
-            value={warehouseId}
-            onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")}
-            className={inputClass}
+            value={filterStatus}
+            onChange={(e) => setFilterStatus((e.target.value as StockCategoryStatus) || "")}
+            className={listFilterInputClass}
+          >
+            <option value="">Semua Status</option>
+            {STATUS_FILTER_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </ListFilterField>
+        <ListFilterField label="Tanggal Masuk (Dari)">
+          <input
+            type="date"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+            className={`${listFilterInputClass} dark:[color-scheme:dark]`}
+          />
+        </ListFilterField>
+        <ListFilterField label="Tanggal Masuk (Sampai)">
+          <input
+            type="date"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+            className={`${listFilterInputClass} dark:[color-scheme:dark]`}
+          />
+        </ListFilterField>
+        <ListFilterField label="Species">
+          <select
+            value={filterSpeciesId}
+            onChange={(e) => setFilterSpeciesId(e.target.value ? Number(e.target.value) : "")}
+            className={listFilterInputClass}
+          >
+            <option value="">Semua Species</option>
+            {speciesOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </ListFilterField>
+        <ListFilterField label="Gudang / Area">
+          <select
+            value={filterWarehouseId}
+            onChange={(e) => setFilterWarehouseId(e.target.value ? Number(e.target.value) : "")}
+            className={listFilterInputClass}
           >
             <option value="">Semua Gudang</option>
             {coldStorages.map((cs) => (
@@ -151,193 +243,153 @@ export default function ColdStorageDashboard() {
               </option>
             ))}
           </select>
-          <select
-            value={kategoriStatus}
-            onChange={(e) => setKategoriStatus((e.target.value as StockCategoryStatus) || "")}
-            className={inputClass}
-          >
-            <option value="">Semua Status</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-      </section>
+        </ListFilterField>
+        <ListFilterField label="Batch / Kode Penerimaan">
+          <input
+            type="search"
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+            placeholder="Cari batch atau kode penerimaan"
+            maxLength={64}
+            className={listFilterInputClass}
+          />
+        </ListFilterField>
+      </ListFilterSection>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <SummaryCard title="Batch Aktif" value={summary.activeBatchCount} tone="slate" />
-        <SummaryCard title="Total Stok" value={formatKg(summary.totalStockKg)} tone="slate" />
-        <SummaryCard title="Fresh" value={summary.FRESH} tone="green" />
-        <SummaryCard title="Warning" value={summary.WARNING} tone="yellow" />
-        <SummaryCard title="Expired" value={summary.EXPIRED} tone="red" />
-        <SummaryCard title="Utilisasi Avg" value={`${summary.averageUtilizationPct.toFixed(1)}%`} tone="slate" />
-      </section>
+      <StockMonitorSummaryGrid
+        activeBatchCount={summary.activeBatchCount}
+        totalStockKg={summary.totalStockKg}
+        freshCount={summary.FRESH}
+        warningCount={summary.WARNING}
+        expiredCount={summary.EXPIRED}
+        averageUtilizationPct={summary.averageUtilizationPct}
+        utilizationBadgeLabel={filterWarehouseId ? "Utilisasi Gudang" : "Utilisasi Avg"}
+      />
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Breakdown Status Stok</h2>
-        <div className="space-y-3">
-          {statusBreakdown.map((item) => (
-            <button
-              key={item.status}
-              type="button"
-              onClick={() => setKategoriStatus(item.status)}
-              className="grid w-full grid-cols-[96px_1fr_120px] items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-cyan/5"
-            >
-              <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(item.status)}`}>
-                {item.status}
-              </span>
-              <span className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                <span
-                  className="block h-full rounded-full bg-cyan"
-                  style={{ width: `${Math.max(4, (item.stockKg / maxBreakdownStock) * 100)}%` }}
-                />
-              </span>
-              <span className="text-right text-xs text-gray-600 dark:text-gray-300">
-                {item.batchCount} batch · {formatKg(item.stockKg)}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+      <StockStatusBreakdownSection
+        rows={filteredRows}
+        getStatus={(row) => row.kategoriStatus}
+        getStockKg={(row) => toStockNumber(row.jumlahStok)}
+        onStatusClick={(status) => setFilterStatus(status)}
+      />
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Stok</h2>
-        <TableListPaginationToolbar
-          totalCount={pagination.totalCount}
-          itemLabel="batch"
-          pageSize={pagination.pageSize}
-          onPageSizeChange={pagination.setPageSize}
+      <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
+        <BatchArrivalNoticePanel
+          title="Notifikasi Batch Baru — Cold Storage"
+          notices={newArrivalNotices}
+          panelHidden={arrivalPanelHidden}
+          onHidePanel={() => setArrivalPanelHidden(true)}
+          onDismissNotice={dismissArrivalNotice}
         />
-        <RejectBatchLegend className="mb-3" />
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-3 py-2">Batch</th>
-                <th className="px-3 py-2">Kode Penerimaan</th>
-                <th className="px-3 py-2">Species</th>
-                <th className="px-3 py-2">Gudang / Area</th>
-                <th className="px-3 py-2">Tgl Penerimaan</th>
-                <th className="px-3 py-2">Tgl Masuk</th>
-                <th className="px-3 py-2">Umur Simpan</th>
-                <th className="px-3 py-2">Stok</th>
-                <th className="px-3 py-2 text-center">QR</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
-                    Memuat data...
-                  </td>
+
+        <div className="p-5">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Stok</h2>
+          <TableListPaginationToolbar
+            totalCount={pagination.totalCount}
+            itemLabel="batch"
+            pageSize={pagination.pageSize}
+            onPageSizeChange={pagination.setPageSize}
+          />
+          <RejectBatchLegend className="mb-3" />
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                  <th className="px-3 py-2">Batch</th>
+                  <th className="px-3 py-2">Kode Penerimaan</th>
+                  <th className="px-3 py-2">Species</th>
+                  <th className="px-3 py-2">Gudang / Area</th>
+                  <th className="px-3 py-2 text-right">Stok</th>
+                  <th className="px-3 py-2">Tgl Penerimaan</th>
+                  <th className="px-3 py-2">Tgl Masuk</th>
+                  <th className="px-3 py-2">Umur Simpan</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-center">QR</th>
+                  <th className="px-3 py-2 text-right">Aksi</th>
                 </tr>
-              ) : pagination.visibleItems.length ? (
-                pagination.visibleItems.map((row) => {
-                  const rejectRow = isInboundRejectBatchRow(row);
-                  return (
-                  <tr
-                    key={`${row.batchId}-${row.warehouseId}`}
-                    className={`border-b border-gray-100 dark:border-gray-800 ${rejectRow ? rejectBatchRowClass : ""}`}
-                  >
-                    <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">{row.batchNumber}</td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.inboundReceiptCode ?? "—"}</td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.speciesName ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col">
-                        <span className="text-gray-900 dark:text-gray-100">
-                          {row.warehouseCode} — {row.warehouseName}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Area: {row.storageArea}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
-                      {formatDateDdMmYyyy(row.tanggalPenerimaan ?? null)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
-                      {formatDateDdMmYyyy(row.tanggalMasuk)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
-                      {row.umurSimpanDays} hari
-                      {row.umurSimpanBulan > 0 && (
-                        <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">
-                          ({row.umurSimpanBulan} bln)
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
-                      {row.jumlahStok ?? 0} {row.unit ?? ""}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <BatchQrCode batchNumber={row.batchNumber} size={48} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(row.kategoriStatus)}`}
-                      >
-                        {row.kategoriStatus}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <Link href={batchDetailHref(row.batchNumber)} className={actionBtn("primary", "xs")}>
-                        View Detail
-                      </Link>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
+                      Memuat data...
                     </td>
                   </tr>
-                );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
-                    Belum ada stok batch aktif di Cold Storage.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                ) : pagination.visibleItems.length ? (
+                  pagination.visibleItems.map((row) => {
+                    const rejectRow = isInboundRejectBatchRow(row);
+                    return (
+                      <tr
+                        key={`${row.batchId}-${row.warehouseId}`}
+                        className={`border-b border-gray-100 dark:border-gray-800 ${rejectRow ? rejectBatchRowClass : ""}`}
+                      >
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">{row.batchNumber}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.inboundReceiptCode ?? "—"}</td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-200">{row.speciesName ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col">
+                            <span className="text-gray-900 dark:text-gray-100">
+                              {row.warehouseCode} — {row.warehouseName}
+                            </span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Area: {row.storageArea}</span>
+                          </div>
+                        </td>
+                        <td className={`px-3 py-2 text-right ${stockQtyGreenClass}`}>
+                          {row.jumlahStok ?? 0} {row.unit ?? ""}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
+                          {formatDateDdMmYyyy(row.tanggalPenerimaan ?? null)}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
+                          {formatDateDdMmYyyy(row.tanggalMasuk)}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-200">
+                          {row.umurSimpanDays} hari
+                          {row.umurSimpanBulan > 0 && (
+                            <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">
+                              ({row.umurSimpanBulan} bln)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stockCategoryStatusBadgeClass(row.kategoriStatus)}`}
+                          >
+                            {row.kategoriStatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <BatchQrCode batchNumber={row.batchNumber} size={48} />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Link href={batchDetailHref(row.batchNumber)} className={actionBtn("primary", "xs")}>
+                            View Detail
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-5 text-gray-500 dark:text-gray-400">
+                      Belum ada stok batch aktif di Cold Storage.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <TableListPaginationFooter
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalCount={pagination.totalCount}
+            onPageChange={pagination.setPage}
+            disabled={loading}
+            show={!loading && pagination.totalCount > 0}
+          />
         </div>
-
-        <TableListPaginationFooter
-          page={pagination.page}
-          totalPages={pagination.totalPages}
-          totalCount={pagination.totalCount}
-          onPageChange={pagination.setPage}
-          disabled={loading}
-          show={!loading && pagination.totalCount > 0}
-        />
       </section>
-    </div>
-  );
-}
-
-function SummaryCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: number | string;
-  tone: "slate" | "green" | "yellow" | "red";
-}) {
-  const toneClass =
-    tone === "green"
-      ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
-      : tone === "yellow"
-        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200"
-        : tone === "red"
-          ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
-          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card">
-      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</p>
-      <div className="mt-2 flex items-end justify-between">
-        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${toneClass}`}>{title}</span>
-      </div>
     </div>
   );
 }

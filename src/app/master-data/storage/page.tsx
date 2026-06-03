@@ -67,6 +67,7 @@ export default function StorageMasterDataPage() {
       { key: "csCode",      label: "Kode CS" },
       { key: "csName",      label: "Nama Cold Storage" },
       { key: "branchName",  label: "Branch" },
+      { key: "capacityTon", label: "Kapasitas (ton)" },
       { key: "isActive",    label: "Status" },
     ],
     data:    storage.data,
@@ -89,11 +90,13 @@ export default function StorageMasterDataPage() {
       },
       { key: "csCode", label: "Kode Cold Storage", type: "text", required: true, placeholder: "CS-001" },
       { key: "csName", label: "Nama Cold Storage", type: "text", required: true, placeholder: "Cold Storage Utama" },
+      { key: "capacityTon", label: "Kapasitas (ton)", type: "number", min: 0.001, placeholder: "4" },
     ],
     getFormData: (row) => ({
       branchId: row.branchId,
       csCode:   row.csCode,
       csName:   row.csName,
+      capacityTon: row.capacityTon ?? "",
     }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onCreate: (data) => storage.create(data as any),

@@ -6,9 +6,11 @@ import {
   TableListPaginationToolbar,
   useClientTablePagination,
 } from "@/components/ui/TableListPagination";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { listBatchMoveHistory, listBatchesWithMovementHistory } from "@/lib/coldstorage-api";
+import { formatIdDateTime } from "@/lib/coldstorage-format";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
-import { alertErrorClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
+import { alertErrorClass, labelClass } from "@/lib/coldstorage-ui";
 import type { AssignLocationResponse } from "@/types/coldstorage";
 
 interface MasterBatchOption {
@@ -24,8 +26,18 @@ export default function BatchHistoryPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const [batches, setBatches] = useState<MasterBatchOption[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState<number | "">("");
+  const [selectedBatchId, setSelectedBatchId] = useState("");
   const [historyData, setHistoryData] = useState<AssignLocationResponse[] | null>(null);
+
+  const batchOptions = useMemo(
+    () =>
+      batches.map((b) => ({
+        value: String(b.batchId),
+        label: `${b.batchNumber}${b.fishSpeciesName ? ` — ${b.fishSpeciesName}` : ""}`,
+        searchText: `${b.batchNumber} ${b.fishSpeciesName ?? ""}`,
+      })),
+    [batches]
+  );
 
   const historyRows = useMemo(() => historyData ?? [], [historyData]);
   const historyPagination = useClientTablePagination(historyRows, {
@@ -59,6 +71,7 @@ export default function BatchHistoryPanel() {
       setError(null);
       try {
         const data = await listBatchMoveHistory(Number(selectedBatchId));
+        // selectedBatchId is string from SearchableSelect
         setHistoryData(data);
       } catch (err) {
         setHistoryData(null);
@@ -86,20 +99,15 @@ export default function BatchHistoryPanel() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <label className={labelClass}>Pilih Batch</label>
-        <select
+        <SearchableSelect
+          options={batchOptions}
           value={selectedBatchId}
-          onChange={(e) => setSelectedBatchId(e.target.value ? Number(e.target.value) : "")}
-          className={`max-w-md ${inputClass}`}
+          onChange={setSelectedBatchId}
           disabled={loading}
-        >
-          <option value="">{loading ? "Memuat..." : "Pilih batch..."}</option>
-          {batches.map((b) => (
-            <option key={b.batchId} value={b.batchId}>
-              {b.batchNumber}
-              {b.fishSpeciesName ? ` — ${b.fishSpeciesName}` : ""}
-            </option>
-          ))}
-        </select>
+          placeholder={loading ? "Memuat…" : "Pilih batch..."}
+          emptyMessage="Tidak ada batch dengan histori perpindahan"
+          className="max-w-md"
+        />
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-dark-card">
@@ -131,7 +139,7 @@ export default function BatchHistoryPanel() {
                 {historyPagination.visibleItems.map((h) => (
                   <tr key={h.locationId} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="py-2 pr-3 text-gray-700 dark:text-gray-200">
-                      {h.createdAt ? new Date(h.createdAt).toLocaleString() : "—"}
+                      {formatIdDateTime(h.createdAt)}
                     </td>
                     <td className="py-2 pr-3 text-gray-700 dark:text-gray-200">
                       {h.warehouseCode ?? "—"} {h.warehouseName ? `— ${h.warehouseName}` : ""}

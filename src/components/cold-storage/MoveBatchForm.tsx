@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ConfirmActionModal from "@/components/cold-storage/ConfirmActionModal";
 import Button from "@/components/ui/Button";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { getColdStorages } from "@/lib/expiry";
 import {
+  COLD_STORAGE_PENDING_APPROVAL_MSG,
   listActiveLocations,
   listStorageAreaOptions,
   moveBatch,
@@ -22,6 +25,7 @@ type DestinationType = "LOADING_BAY" | "COLD_STORAGE";
 export default function MoveBatchForm() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -38,6 +42,26 @@ export default function MoveBatchForm() {
   const selectedLocation = useMemo(
     () => activeLocations.find((loc) => loc.batchId === Number(batchId)),
     [activeLocations, batchId]
+  );
+
+  const batchOptions = useMemo(
+    () =>
+      activeLocations.map((loc) => ({
+        value: String(loc.batchId),
+        label: `${loc.batchNumber} - ${loc.warehouseCode} (${loc.storageArea})`,
+        searchText: `${loc.batchNumber} ${loc.warehouseCode} ${loc.storageArea}`,
+      })),
+    [activeLocations]
+  );
+
+  const targetAreaOptions = useMemo(
+    () =>
+      targetAreas.map((area) => ({
+        value: String(area.positionId),
+        label: area.displayName,
+        searchText: area.displayName,
+      })),
+    [targetAreas]
   );
 
   const targetWarehouses = useMemo(() => {
@@ -99,8 +123,7 @@ export default function MoveBatchForm() {
     return !!targetAreaId;
   }, [selectedLocation, targetAreaId, submitting, destinationType]);
 
-  async function handleMoveBatch(e: React.FormEvent) {
-    e.preventDefault();
+  async function doMoveBatch() {
     if (!selectedLocation) return;
     if (destinationType === "COLD_STORAGE" && !targetAreaId) return;
 
@@ -116,12 +139,17 @@ export default function MoveBatchForm() {
         lokasi_tujuan: destinationType === "COLD_STORAGE" ? Number(targetAreaId) : undefined,
         notes: notes.trim() || undefined,
       };
-      const moved = await moveBatch(payload);
-      setSuccess(
-        destinationType === "LOADING_BAY"
-          ? `Batch ${moved.batchNumber} dipindahkan ke Loading Bay.`
-          : `Batch ${moved.batchNumber} dipindahkan ke ${moved.warehouseTujuanCode} - ${moved.warehouseTujuanName} (${moved.lokasiTujuanLabel}).`
-      );
+      const result = await moveBatch(payload);
+      if (result.status === "pending") {
+        setSuccess(result.message ?? COLD_STORAGE_PENDING_APPROVAL_MSG);
+      } else {
+        const moved = result.data;
+        setSuccess(
+          destinationType === "LOADING_BAY"
+            ? `Batch ${moved.batchNumber} dipindahkan ke Loading Bay.`
+            : `Batch ${moved.batchNumber} dipindahkan ke ${moved.warehouseTujuanCode} - ${moved.warehouseTujuanName} (${moved.lokasiTujuanLabel}).`
+        );
+      }
       setNotes("");
 
       const locations = await listActiveLocations();
@@ -136,8 +164,20 @@ export default function MoveBatchForm() {
       setError(apiMessage ?? (err instanceof Error ? err.message : "Gagal memindahkan batch"));
     } finally {
       setSubmitting(false);
+      setConfirmOpen(false);
     }
   }
+
+  function handleMoveBatch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setConfirmOpen(true);
+  }
+
+  const confirmMessage =
+    destinationType === "LOADING_BAY"
+      ? `Yakin memindahkan batch ${selectedLocation?.batchNumber ?? ""} ke Loading Bay?`
+      : `Yakin memindahkan batch ${selectedLocation?.batchNumber ?? ""} ke storage area tujuan?`;
 
   return (
     <div className="space-y-6">
@@ -161,22 +201,16 @@ export default function MoveBatchForm() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className={labelClass}>
-              Batch Aktif<span className="text-red-500">*</span>
+              Batch<span className="text-red-500">*</span>
             </label>
-            <select
-              value={batchId}
-              onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : "")}
-              className={inputClass}
-              required
+            <SearchableSelect
+              options={batchOptions}
+              value={batchId === "" ? "" : String(batchId)}
+              onChange={(v) => setBatchId(v === "" ? "" : Number(v))}
               disabled={loading || !activeLocations.length}
-            >
-              <option value="">Pilih batch...</option>
-              {activeLocations.map((loc) => (
-                <option key={loc.locationId} value={loc.batchId}>
-                  {loc.batchNumber} - {loc.warehouseCode} ({loc.storageArea})
-                </option>
-              ))}
-            </select>
+              placeholder={loading ? "Memuat…" : "Pilih batch..."}
+              emptyMessage="Batch tidak ditemukan"
+            />
           </div>
 
           <div>
@@ -250,20 +284,14 @@ export default function MoveBatchForm() {
                 <label className={labelClass}>
                   Storage Area Tujuan<span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={targetAreaId}
-                  onChange={(e) => setTargetAreaId(e.target.value ? Number(e.target.value) : "")}
-                  className={inputClass}
+                <SearchableSelect
+                  options={targetAreaOptions}
+                  value={targetAreaId === "" ? "" : String(targetAreaId)}
+                  onChange={(v) => setTargetAreaId(v === "" ? "" : Number(v))}
                   disabled={!targetWarehouseId || loading || targetAreas.length === 0}
-                  required
-                >
-                  <option value="">Pilih storage area tujuan...</option>
-                  {targetAreas.map((area) => (
-                    <option key={area.positionId} value={area.positionId}>
-                      {area.displayName}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Pilih storage area tujuan..."
+                  emptyMessage="Storage area tidak ditemukan"
+                />
                 {!loading && targetWarehouseId && targetAreas.length === 0 && (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Tidak ada storage area aktif yang tersedia.
@@ -296,6 +324,17 @@ export default function MoveBatchForm() {
           </Button>
         </div>
       </form>
+
+      {confirmOpen && (
+        <ConfirmActionModal
+          title="Pindahkan Lokasi Batch"
+          message={confirmMessage}
+          confirmLabel="Pindahkan"
+          busy={submitting}
+          onConfirm={() => void doMoveBatch()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

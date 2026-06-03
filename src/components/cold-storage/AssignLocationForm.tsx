@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Button from "@/components/ui/Button";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+import ConfirmActionModal from "@/components/cold-storage/ConfirmActionModal";
 import { getColdStorages } from "@/lib/expiry";
 import {
   assignLocation,
@@ -20,15 +21,6 @@ import type {
   StorageAreaOption,
 } from "@/types/coldstorage";
 
-/**
- * Form Penentuan Lokasi Penyimpanan Batch (E05-PBI-01).
- *
- * Acceptance criteria yang dicover:
- * - Dropdown hanya menampilkan gudang aktif.
- * - Field area penyimpanan wajib diisi.
- * - Tombol "Simpan Lokasi" aktif jika semua field valid.
- * - Notifikasi sukses muncul setelah berhasil.
- */
 export default function AssignLocationForm() {
   const searchParams = useSearchParams();
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
@@ -43,13 +35,33 @@ export default function AssignLocationForm() {
   );
   const [notes, setNotes] = useState("");
   const [warehouseLocked, setWarehouseLocked] = useState(false);
-  /** yyyy-MM-dd — batas minimum tanggal masuk jika batch punya inbound */
   const [inboundReceiptDate, setInboundReceiptDate] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const batchOptions = useMemo(
+    () =>
+      batches.map((b) => ({
+        value: String(b.batchId),
+        label: `${b.batchNumber}${b.fishSpeciesName ? ` — ${b.fishSpeciesName}` : ""}`,
+        searchText: `${b.batchNumber} ${b.fishSpeciesName ?? ""}`,
+      })),
+    [batches]
+  );
+
+  const storageAreaOptions = useMemo(
+    () =>
+      storageAreas.map((area) => ({
+        value: String(area.positionId),
+        label: area.displayName,
+        searchText: area.displayName,
+      })),
+    [storageAreas]
+  );
 
   useEffect(() => {
     const q = searchParams.get("batchId");
@@ -134,8 +146,7 @@ export default function AssignLocationForm() {
     [batchId, warehouseId, storageAreaId, tanggalMasuk, submitting]
   );
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doSubmit() {
     if (!canSubmit) return;
     if (inboundReceiptDate && tanggalMasuk < inboundReceiptDate) {
       setError(
@@ -176,8 +187,18 @@ export default function AssignLocationForm() {
       setError(apiMessage ?? (err instanceof Error ? err.message : "Gagal menyimpan lokasi batch"));
     } finally {
       setSubmitting(false);
+      setConfirmOpen(false);
     }
   }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setConfirmOpen(true);
+  }
+
+  const selectedBatchLabel = batchOptions.find((o) => o.value === String(batchId))?.label ?? "";
+  const selectedAreaLabel = storageAreaOptions.find((o) => o.value === String(storageAreaId))?.label ?? "";
 
   return (
     <div className="space-y-6">
@@ -198,21 +219,14 @@ export default function AssignLocationForm() {
             <label className={labelClass}>
               Batch <span className="text-red-500">*</span>
             </label>
-            <select
-              value={batchId}
-              onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : "")}
-              className={inputClass}
+            <SearchableSelect
+              options={batchOptions}
+              value={batchId === "" ? "" : String(batchId)}
+              onChange={(v) => setBatchId(v === "" ? "" : Number(v))}
               disabled={loading}
-              required
-            >
-              <option value="">Pilih batch...</option>
-              {batches.map((b) => (
-                <option key={b.batchId} value={b.batchId}>
-                  {b.batchNumber}
-                  {b.fishSpeciesName ? ` — ${b.fishSpeciesName}` : ""}
-                </option>
-              ))}
-            </select>
+              placeholder={loading ? "Memuat…" : "Pilih batch..."}
+              emptyMessage="Batch tidak ditemukan"
+            />
           </div>
 
           <div>
@@ -245,22 +259,14 @@ export default function AssignLocationForm() {
             <label className={labelClass}>
               Storage Area <span className="text-red-500">*</span>
             </label>
-            <select
-              value={storageAreaId}
-              onChange={(e) => setStorageAreaId(e.target.value ? Number(e.target.value) : "")}
-              className={inputClass}
-              required
+            <SearchableSelect
+              options={storageAreaOptions}
+              value={storageAreaId === "" ? "" : String(storageAreaId)}
+              onChange={(v) => setStorageAreaId(v === "" ? "" : Number(v))}
               disabled={!warehouseId || !batchId || loading}
-            >
-              <option value="">
-                {warehouseId ? "Pilih storage area..." : "Pilih gudang terlebih dahulu"}
-              </option>
-              {storageAreas.map((area) => (
-                <option key={area.positionId} value={area.positionId}>
-                  {area.displayName}
-                </option>
-              ))}
-            </select>
+              placeholder={warehouseId ? "Pilih storage area..." : "Pilih gudang terlebih dahulu"}
+              emptyMessage="Storage area tidak ditemukan"
+            />
           </div>
 
           <div>
@@ -305,6 +311,17 @@ export default function AssignLocationForm() {
           </Button>
         </div>
       </form>
+
+      {confirmOpen && (
+        <ConfirmActionModal
+          title="Simpan Lokasi Batch"
+          message={`Yakin menyimpan lokasi untuk batch ${selectedBatchLabel} ke ${selectedAreaLabel}?`}
+          confirmLabel="Simpan"
+          busy={submitting}
+          onConfirm={() => void doSubmit()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

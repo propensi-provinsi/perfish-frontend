@@ -12,8 +12,13 @@ import {
 } from "@/components/ui/TableListPagination";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import PositionStatusBadge from "@/components/cold-storage/PositionStatusBadge";
+import { formatTonLabel } from "@/lib/coldstorage-format";
 import { listColdStorageStructureSummaries } from "@/lib/coldstorage-api";
 import { alertErrorClass, tableTdClass, tableTdMutedClass } from "@/lib/coldstorage-ui";
+import {
+  formatUtilizationPct,
+  utilizationBadgeClass,
+} from "@/lib/utilization-display";
 import type { ColdStorageStructureSummary } from "@/types/coldstorage";
 
 function fmtKg(v: number | string | null | undefined) {
@@ -21,13 +26,6 @@ function fmtKg(v: number | string | null | undefined) {
   const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
   if (!Number.isFinite(n)) return "—";
   return `${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })} kg`;
-}
-
-function fmtTon(v: number | string | null | undefined) {
-  if (v == null || v === "") return "—";
-  const n = typeof v === "string" ? Number(v.replace(",", ".")) : v;
-  if (!Number.isFinite(n)) return "—";
-  return `${n.toLocaleString("id-ID", { maximumFractionDigits: 4 })} t`;
 }
 
 function fmtPct(v: number | null | undefined) {
@@ -119,7 +117,8 @@ function ColdStorageStructurePageInner() {
                 <th className="px-4 py-3 text-right">Block</th>
                 <th className="px-4 py-3 text-right">Rack</th>
                 <th className="px-4 py-3 text-right">Posisi</th>
-                <th className="px-4 py-3 text-right">Stok (ton)</th>
+                <th className="px-4 py-3 text-right">Stok</th>
+                <th className="px-4 py-3 text-right">Kapasitas</th>
                 <th className="px-4 py-3 text-right">Okupansi posisi</th>
                 <th className="px-4 py-3">Status posisi</th>
                 <th className="px-4 py-3" />
@@ -138,8 +137,18 @@ function ColdStorageStructurePageInner() {
                   <td className={`px-4 py-2 text-right tabular-nums ${tableTdClass}`}>{r.rackCount}</td>
                   <td className={`px-4 py-2 text-right tabular-nums ${tableTdClass}`}>{r.positionCount}</td>
                   <td className={`px-4 py-2 text-right tabular-nums ${tableTdMutedClass}`}>
-                    {fmtTon(r.totalStockTon ?? null)}
+                    {formatTonLabel(r.totalStockTon ?? null)}
                     <div className="text-[11px] font-normal text-gray-500 dark:text-gray-400">{fmtKg(r.totalStockKg)}</div>
+                  </td>
+                  <td className={`px-4 py-2 text-right text-xs ${tableTdMutedClass}`}>
+                    <span className="tabular-nums text-gray-900 dark:text-gray-100">{formatTonLabel(r.capacityTon ?? null)}</span>
+                    <div>
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${utilizationBadgeClass(r.stockUtilizationPct ?? null)}`}
+                      >
+                        {formatUtilizationPct(r.stockUtilizationPct ?? null)}
+                      </span>
+                    </div>
                   </td>
                   <td className={`px-4 py-2 text-right text-xs ${tableTdMutedClass}`}>
                     <span className="tabular-nums">{fmtPct(r.positionOccupancyRatePct ?? null)}</span>

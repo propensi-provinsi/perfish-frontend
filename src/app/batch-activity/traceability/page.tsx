@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { canAccessBatchActivity } from "@/lib/rbac";
 import AppShell from "@/components/layout/AppShell";
 import { useMasterBatch } from "@/hooks/useMasterBatch";
 import { useBatchTraceability } from "@/hooks/useBatchTraceability";
@@ -18,6 +20,8 @@ function fmtKg(value: number | string | null | undefined) {
 }
 
 export default function BatchTraceabilityPage() {
+  const searchParams = useSearchParams();
+  const presetBatchId = searchParams.get("batchId");
   const { data: masterBatches = [] } = useMasterBatch();
   const {
     data,
@@ -37,6 +41,14 @@ export default function BatchTraceabilityPage() {
   useEffect(() => {
     void fetchReceivingGroups();
   }, [fetchReceivingGroups]);
+
+  useEffect(() => {
+    const id = presetBatchId ? Number(presetBatchId) : NaN;
+    if (!Number.isFinite(id) || id <= 0) return;
+    setMode("batch");
+    setSelectedBatchId(id);
+    void fetchTraceability(id);
+  }, [presetBatchId, fetchTraceability]);
 
   const filteredBatches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -68,7 +80,7 @@ export default function BatchTraceabilityPage() {
   };
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute authorize={canAccessBatchActivity}>
       <AppShell>
         <div className="flex h-full flex-col p-6">
           <div className="mb-6">

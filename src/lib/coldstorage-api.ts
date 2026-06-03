@@ -15,6 +15,7 @@ import type {
   BatchHistoryResponse,
   BatchMergePayload,
   BatchMergeResponseData,
+  ColdStorageApprovalRequest,
   ColdStorageStockRow,
   ColdStorageStructureDetail,
   ColdStorageStructureSummary,
@@ -31,8 +32,28 @@ import type {
 
 const BASE = "/v1/coldstorage";
 
+export const COLD_STORAGE_PENDING_APPROVAL_MSG =
+  "Permintaan dikirim, menunggu persetujuan Warehouse Admin";
+
+export type ColdStorageMutationResult<T> =
+  | { status: "pending"; message: string }
+  | { status: "ok"; data: T };
+
 function unwrap<T>(resp: { data: ApiResponse<T> }) {
   return resp.data.data;
+}
+
+function mutationResult<T>(resp: {
+  status: number;
+  data: ApiResponse<T>;
+}): ColdStorageMutationResult<T> {
+  if (resp.status === 202) {
+    return {
+      status: "pending",
+      message: resp.data.message ?? COLD_STORAGE_PENDING_APPROVAL_MSG,
+    };
+  }
+  return { status: "ok", data: resp.data.data };
 }
 
 export async function listLoadingBayBatches(search = "") {
@@ -116,8 +137,9 @@ export async function disposeBatchMultipart(params: {
   form.append("beritaAcara", params.beritaAcara);
   const resp = await apiClient.post<ApiResponse<DisposalResponse>>(`${BASE}/disposal`, form, {
     headers: { "Content-Type": "multipart/form-data" },
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 202,
   });
-  return unwrap(resp);
+  return mutationResult(resp);
 }
 
 /** Unduh file BAP yang tersimpan untuk disposal (blob + nama file dari header). */
@@ -142,7 +164,7 @@ export async function listDisposalHistory(batchId?: number) {
   return unwrap(resp);
 }
 
-export async function listDisposalHistoryPaged(page = 0, size = 10, batchId?: number) {
+export async function listDisposalHistoryPaged(page = 0, size = 5, batchId?: number) {
   const resp = await apiClient.get<ApiResponse<PagedResponse<DisposalResponse>>>(`${BASE}/disposals`, {
     params: { paged: true, page, size, batchId: batchId ?? undefined },
   });
@@ -150,11 +172,10 @@ export async function listDisposalHistoryPaged(page = 0, size = 10, batchId?: nu
 }
 
 export async function moveBatch(payload: MoveBatchRequest) {
-  const resp = await apiClient.post<ApiResponse<MoveBatchResponse>>(
-    "/storage/move",
-    payload
-  );
-  return unwrap(resp);
+  const resp = await apiClient.post<ApiResponse<MoveBatchResponse>>(`${BASE}/move`, payload, {
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 202,
+  });
+  return mutationResult(resp);
 }
 
 export async function listBatchesWithMovementHistory() {
@@ -240,9 +261,11 @@ export async function updateStockOpnameLines(sessionId: number, payload: StockOp
 
 export async function finalizeStockOpnameSession(sessionId: number) {
   const resp = await apiClient.post<ApiResponse<StockOpnameSessionResponse>>(
-    `${BASE}/stock-opname/sessions/${sessionId}/finalize`
+    `${BASE}/stock-opname/sessions/${sessionId}/finalize`,
+    undefined,
+    { validateStatus: (s) => (s >= 200 && s < 300) || s === 202 }
   );
-  return unwrap(resp);
+  return mutationResult(resp);
 }
 
 export async function deleteStockOpnameSession(sessionId: number) {
@@ -250,6 +273,46 @@ export async function deleteStockOpnameSession(sessionId: number) {
 }
 
 export async function mergeColdStorageBatches(payload: BatchMergePayload) {
-  const resp = await apiClient.post<ApiResponse<BatchMergeResponseData>>(`${BASE}/batch-merge`, payload);
+  const resp = await apiClient.post<ApiResponse<BatchMergeResponseData>>(`${BASE}/batch-merge`, payload, {
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 202,
+  });
+  return mutationResult(resp);
+}
+
+export async function downloadPendingApprovalBeritaAcara(requestId: string) {
+  const resp = await apiClient.get<Blob>(`${BASE}/approval-requests/${requestId}/berita-acara`, {
+    responseType: "blob",
+  });
+  const cd = resp.headers["content-disposition"] as string | undefined;
+  let filename = `berita-acara-pending-${requestId}`;
+  if (cd) {
+    const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i) ?? cd.match(/filename="([^"]+)"/);
+    if (m?.[1]) filename = decodeURIComponent(m[1].trim());
+  }
+  return { blob: resp.data, filename };
+}
+
+export async function listPendingColdStorageApprovals() {
+  const resp = await apiClient.get<ApiResponse<ColdStorageApprovalRequest[]>>(
+    `${BASE}/approval-requests/pending`
+  );
+  return unwrap(resp);
+}
+
+export async function approveColdStorageRequest(requestId: string, note?: string) {
+  const resp = await apiClient.post<ApiResponse<ColdStorageApprovalRequest>>(
+    `${BASE}/approval-requests/${requestId}/approve`,
+    null,
+    { params: note ? { note } : undefined }
+  );
+  return unwrap(resp);
+}
+
+export async function rejectColdStorageRequest(requestId: string, note?: string) {
+  const resp = await apiClient.post<ApiResponse<ColdStorageApprovalRequest>>(
+    `${BASE}/approval-requests/${requestId}/reject`,
+    null,
+    { params: note ? { note } : undefined }
+  );
   return unwrap(resp);
 }

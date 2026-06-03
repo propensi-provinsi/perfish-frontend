@@ -25,6 +25,7 @@ import {
 } from "@/lib/inbound-api";
 import { actionBtn } from "@/lib/ui-action";
 import { SIZING_GRADING_ROLES } from "@/lib/rbac";
+import { useClientTablePagination } from "@/components/ui/TableListPagination";
 
 export default function InboundTallyPage() {
   return (
@@ -52,8 +53,6 @@ type OfflineLog = {
 };
 
 const OFFLINE_KEY = "inbound_offline_weighing";
-
-type RejectReasonOpt = { rejectReasonId: number; reasonCode: string; reasonName: string; isActive: boolean };
 
 function getOfflineLogs(): OfflineLog[] {
   try {
@@ -87,9 +86,8 @@ function InboundTallyContent() {
   const [suhu, setSuhu] = useState("");
   const [basketSize, setBasketSize] = useState("");
   const [isRejectBasket, setIsRejectBasket] = useState(false);
-  const [rejectReasonId, setRejectReasonId] = useState<number | "">("");
+  const [rejectReasonNote, setRejectReasonNote] = useState("");
   const [gradeList, setGradeList] = useState<FishGradeResponse[]>([]);
-  const [rejectReasons, setRejectReasons] = useState<RejectReasonOpt[]>([]);
   const [logs, setLogs] = useState<WeighingLogRow[]>([]);
   const [summary, setSummary] = useState<WeighingSummaryRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -161,17 +159,26 @@ function InboundTallyContent() {
   useEffect(() => {
     (async () => {
       try {
-        const [gRes, rrRes] = await Promise.all([
-          apiClient.get<ApiResponse<FishGradeResponse[]>>("/v1/master/fish/grades"),
-          apiClient.get<ApiResponse<RejectReasonOpt[]>>("/v1/master/reject-reasons"),
-        ]);
+        const gRes = await apiClient.get<ApiResponse<FishGradeResponse[]>>("/v1/master/fish/grades");
         setGradeList((gRes.data.data ?? []).filter((g) => g.isActive === true));
-        setRejectReasons((rrRes.data.data ?? []).filter((r) => r.isActive === true));
       } catch {
         /* ignore */
       }
     })();
   }, []);
+
+  const poSpeciesIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const d of poData?.details ?? []) {
+      if (d.speciesId != null) ids.add(d.speciesId);
+    }
+    return ids;
+  }, [poData]);
+
+  const addableSpeciesList = useMemo(
+    () => speciesList.filter((s) => s.isActive && !poSpeciesIds.has(s.speciesId)),
+    [speciesList, poSpeciesIds],
+  );
 
   const poDetailMap = useMemo(() => {
     if (!poData) return new Map<number, number>();
@@ -201,6 +208,11 @@ function InboundTallyContent() {
   }, [logs]);
 
   const selectedLine = useMemo(() => receipt?.lines.find((l) => l.id === selectedLineId) ?? null, [receipt, selectedLineId]);
+
+  const logPagination = useClientTablePagination(logs, {
+    initialPageSize: 5,
+    resetDeps: [logs.length, selectedLineId],
+  });
 
   async function syncOfflineLogs() {
     const pending = getOfflineLogs().filter((l) => l.receiptId === receiptId);
@@ -232,7 +244,7 @@ function InboundTallyContent() {
       suhuPenerimaan: Number(suhu),
       itemSize: basketSize.trim(),
       isRejectBasket,
-      rejectReasonId: isRejectBasket && rejectReasonId !== "" ? Number(rejectReasonId) : null,
+      rejectReasonNote: isRejectBasket ? rejectReasonNote.trim() : null,
     };
     try {
       if (editingLog) {
@@ -247,7 +259,7 @@ function InboundTallyContent() {
       setTareWeight("");
       setSuhu("");
       setIsRejectBasket(false);
-      setRejectReasonId("");
+      setRejectReasonNote("");
       await Promise.all([loadLogs(), loadSummary(), loadReceipt()]);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -269,7 +281,7 @@ function InboundTallyContent() {
     setSuhu(row.suhuPenerimaan != null ? String(row.suhuPenerimaan) : "");
     setBasketSize(row.itemSize ?? "");
     setIsRejectBasket(Boolean(row.isRejectBasket));
-    setRejectReasonId(row.rejectReasonId ?? "");
+    setRejectReasonNote(row.rejectReasonNote ?? "");
   }
 
   async function handleDeleteLog(logId: string) {
@@ -339,8 +351,9 @@ function InboundTallyContent() {
       const newest = updated.lines[updated.lines.length - 1];
       if (newest?.id) setSelectedLineId(newest.id);
       await loadSummary();
-    } catch {
-      setMsg({ type: "error", text: "Gagal menambahkan spesies." });
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setMsg({ type: "error", text: axiosErr.response?.data?.message || "Gagal menambahkan spesies." });
     } finally {
       setAddingLine(false);
     }
@@ -386,273 +399,307 @@ function InboundTallyContent() {
         </div>
       )}
 
-      {canWeigh && (
-        <form onSubmit={handleSubmitLog} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card space-y-4">
-          {editingLog && (
-            <p className="text-xs text-amber-700 dark:text-amber-300 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-2 py-1">
-              Mengedit basket #{editingLog.basketNo}.{" "}
-              <button type="button" className="underline" onClick={() => setEditingLog(null)}>Batal</button>
-            </p>
-          )}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2 flex gap-2 items-end">
-              <div className="flex-1">
-                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Jenis Ikan</label>
-                <select
-                  value={selectedLineId}
-                  onChange={(e) => setSelectedLineId(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm font-semibold dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                >
-                  <option value="" disabled>Pilih jenis ikan</option>
-                  {receipt?.lines.map((ln) => (
-                    <option key={ln.id} value={ln.id}>
-                      {ln.speciesCode} — {ln.speciesName} ({ln.size}, {ln.bentuk})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button type="button" onClick={() => void openAddSpeciesModal()} className={actionBtn("info", "sm")}>
-                + Spesies Baru
-              </button>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">No. Basket (auto)</label>
-              <input
-                type="number"
-                value={nextBasketNo}
-                readOnly
-                className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-3 text-lg font-bold tabular-nums text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Net Weight (auto)</label>
-              <div className="flex h-[52px] items-center rounded-md border border-gray-200 bg-gray-50 px-3 text-lg font-bold tabular-nums text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                {netDisplay} kg
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Gross Weight (kg)</label>
-              <input type="number" step="0.001" min={0.001} value={grossWeight} onChange={(e) => setGrossWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-3 text-lg font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Tare Weight / Keranjang (kg)</label>
-              <input type="number" step="0.001" min={0} value={tareWeight} onChange={(e) => setTareWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-3 text-lg font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Size (per basket)</label>
-              <input
-                type="text"
-                value={basketSize}
-                onChange={(e) => setBasketSize(e.target.value)}
-                placeholder="contoh: Small, 1–2 kg"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                required
-              />
-            </div>
-            <div className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30 space-y-3">
-              <div className="flex items-center gap-2">
-                <input
-                  id="reject-basket"
-                  type="checkbox"
-                  checked={isRejectBasket}
-                  onChange={(e) => {
-                    setIsRejectBasket(e.target.checked);
-                    if (!e.target.checked) setRejectReasonId("");
-                  }}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
-                  Reject Mutu
-                </label>
-              </div>
-              {isRejectBasket && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Alasan reject (wajib)</label>
-                  <select
-                    value={rejectReasonId === "" ? "" : rejectReasonId}
-                    onChange={(e) => setRejectReasonId(e.target.value === "" ? "" : Number(e.target.value))}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                    required={isRejectBasket}
-                  >
-                    <option value="">— Pilih alasan —</option>
-                    {rejectReasons.map((r) => (
-                      <option key={r.rejectReasonId} value={r.rejectReasonId}>
-                        {r.reasonCode} — {r.reasonName}
-                      </option>
-                    ))}
-                  </select>
+      <div className={`grid gap-6 ${canWeigh || canFinish ? "lg:grid-cols-[minmax(400px,520px)_minmax(0,1fr)]" : "grid-cols-1"}`}>
+        {(canWeigh || canFinish) && (
+          <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+            {canWeigh && (
+              <form onSubmit={handleSubmitLog} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-dark-card space-y-3">
+                {editingLog && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-2 py-1">
+                    Mengedit basket #{editingLog.basketNo}.{" "}
+                    <button type="button" className="underline" onClick={() => setEditingLog(null)}>Batal</button>
+                  </p>
+                )}
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Jenis Ikan</label>
+                    <select
+                      value={selectedLineId}
+                      onChange={(e) => setSelectedLineId(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                    >
+                      <option value="" disabled>Pilih jenis ikan</option>
+                      {receipt?.lines.map((ln) => (
+                        <option key={ln.id} value={ln.id}>
+                          {ln.speciesName} ({ln.size}, {ln.bentuk})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void openAddSpeciesModal()}
+                      disabled={Boolean(receipt?.poId) && addableSpeciesList.length === 0}
+                      className={`mt-2 w-full ${actionBtn("info", "sm")}`}
+                    >
+                      + Spesies Baru
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">No. Basket (auto)</label>
+                      <input
+                        type="number"
+                        value={nextBasketNo}
+                        readOnly
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-2 text-base font-bold tabular-nums text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Net Weight (auto)</label>
+                      <div className="flex h-[42px] items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-base font-bold tabular-nums text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                        {netDisplay} kg
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Gross Weight (kg)</label>
+                    <input type="number" step="0.001" min={0.001} value={grossWeight} onChange={(e) => setGrossWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-2 text-base font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Tare Weight / Keranjang (kg)</label>
+                    <input type="number" step="0.001" min={0} value={tareWeight} onChange={(e) => setTareWeight(e.target.value)} placeholder="0,000" className="w-full rounded-md border border-gray-300 px-3 py-2 text-base font-bold tabular-nums dark:border-gray-600 dark:bg-dark-card dark:text-gray-100" required />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Size (per basket)</label>
+                    <input
+                      type="text"
+                      value={basketSize}
+                      onChange={(e) => setBasketSize(e.target.value)}
+                      placeholder="contoh: Small, 1–2 kg"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                      required
+                    />
+                  </div>
+                  <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/30 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="reject-basket"
+                        type="checkbox"
+                        checked={isRejectBasket}
+                        onChange={(e) => {
+                          setIsRejectBasket(e.target.checked);
+                          if (!e.target.checked) setRejectReasonNote("");
+                        }}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <label htmlFor="reject-basket" className="text-sm font-medium text-gray-800 dark:text-gray-200 cursor-pointer">
+                        Reject Mutu
+                      </label>
+                    </div>
+                    {isRejectBasket && (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Alasan reject (wajib)</label>
+                        <input
+                          type="text"
+                          value={rejectReasonNote}
+                          onChange={(e) => setRejectReasonNote(e.target.value)}
+                          maxLength={255}
+                          placeholder="contoh: ikan busuk / ukuran tidak sesuai"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                          required={isRejectBasket}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade</label>
+                    <select
+                      value={gradeId === "" ? "" : gradeId}
+                      onChange={(e) => setGradeId(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                      required
+                    >
+                      <option value="">Pilih grade</option>
+                      {gradeList.map((g) => (
+                        <option key={g.gradeId} value={g.gradeId}>
+                          {g.gradeCode} — {g.gradeName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Suhu penerimaan (°C)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={suhu}
+                      onChange={(e) => setSuhu(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
+                      required
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Grade</label>
-              <select
-                value={gradeId === "" ? "" : gradeId}
-                onChange={(e) => setGradeId(e.target.value === "" ? "" : Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                required
-              >
-                <option value="">Pilih grade</option>
-                {gradeList.map((g) => (
-                  <option key={g.gradeId} value={g.gradeId}>
-                    {g.gradeCode} — {g.gradeName}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Suhu penerimaan (°C)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={suhu}
-                onChange={(e) => setSuhu(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-dark-card dark:text-gray-100"
-                required
-              />
-            </div>          </div>
-          <button
-            type="submit"
-            disabled={
-              saving
-              || !selectedLineId
-              || gradeId === ""
-              || suhu.trim() === ""
-              || !basketSize.trim()
-              || (isRejectBasket && rejectReasonId === "")
-            }
-            className={`w-full ${actionBtn("primary")}`}
-          >
-            {saving ? "Menyimpan..." : "Simpan Sizing & Grading"}
-          </button>
-        </form>
-      )}
+                <button
+                  type="submit"
+                  disabled={
+                    saving
+                    || !selectedLineId
+                    || gradeId === ""
+                    || suhu.trim() === ""
+                    || !basketSize.trim()
+                    || (isRejectBasket && !rejectReasonNote.trim())
+                  }
+                  className={`w-full ${actionBtn("primary")}`}
+                >
+                  {saving ? "Menyimpan..." : "Simpan Sizing & Grading"}
+                </button>
+              </form>
+            )}
 
-      {canFinish && (
-        <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className={`w-full ${actionBtn("warning")}`}>
-          {finishing ? "Memproses…" : "Lanjut Paletisasi"}
-        </button>
-      )}
+            {canFinish && (
+              <button type="button" onClick={() => void handleFinishWeighing()} disabled={finishing} className={`w-full ${actionBtn("warning")}`}>
+                {finishing ? "Memproses…" : "Lanjut Paletisasi"}
+              </button>
+            )}
+          </div>
+        )}
 
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ringkasan per Jenis Ikan</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-gray-600 dark:bg-white/5 dark:text-gray-400">
-                <th className="px-4 py-2 font-medium">Jenis Ikan</th>
-                <th className="px-4 py-2 font-medium">Size</th>
-                <th className="px-4 py-2 font-medium">Bentuk</th>
-                <th className="px-4 py-2 font-medium text-right">Jumlah Basket</th>
-                <th className="px-4 py-2 font-medium text-right">Total Net (kg)</th>
-                {poData && <th className="px-4 py-2 font-medium text-right">PO Weight (kg)</th>}
-                {poData && <th className="px-4 py-2 font-medium text-center">Status</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {summary.length === 0 ? (
-                <tr><td colSpan={poData ? 7 : 5} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
-              ) : (
-                summary.map((s) => {
-                  const poWeight = poDetailMap.get(s.speciesId);
-                  const totalNet = Number(s.totalNetWeightKg) || 0;
-                  const isOver = poWeight != null && totalNet > poWeight;
-                  return (
-                    <tr key={s.lineId} className={`border-t border-gray-100 dark:border-gray-800 ${s.lineId === selectedLineId ? "bg-cyan/5 dark:bg-cyan/10" : ""} ${isOver ? "bg-amber-50 dark:bg-amber-950/20" : ""}`}>
-                      <td className="px-4 py-2 font-medium">{s.speciesCode} — {s.speciesName}</td>
-                      <td className="px-4 py-2">{s.size}</td>
-                      <td className="px-4 py-2">{s.bentuk}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{s.basketCount}</td>
-                      <td className={`px-4 py-2 text-right tabular-nums font-semibold ${isOver ? "text-amber-700 dark:text-amber-300" : ""}`}>{fmtKg(s.totalNetWeightKg)}</td>
-                      {poData && <td className="px-4 py-2 text-right tabular-nums text-gray-500">{poWeight != null ? fmtKg(poWeight) : "—"}</td>}
-                      {poData && (
-                        <td className="px-4 py-2 text-center">
-                          {poWeight == null ? (
-                            <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">UNPLANNED</span>
-                          ) : isOver ? (
-                            <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">OVER-RECEIVE</span>
+        <div className="min-w-0 space-y-6">
+          <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
+            <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ringkasan per Jenis Ikan</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-left text-gray-600 dark:bg-white/5 dark:text-gray-400">
+                    <th className="px-4 py-2 font-medium">Jenis Ikan</th>
+                    <th className="px-4 py-2 font-medium">Size</th>
+                    <th className="px-4 py-2 font-medium">Bentuk</th>
+                    <th className="px-4 py-2 font-medium text-right">Jumlah Basket</th>
+                    <th className="px-4 py-2 font-medium text-right">Total Net (kg)</th>
+                    {poData && <th className="px-4 py-2 font-medium text-right">PO Weight (kg)</th>}
+                    {poData && <th className="px-4 py-2 font-medium text-center">Status</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.length === 0 ? (
+                    <tr><td colSpan={poData ? 7 : 5} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
+                  ) : (
+                    summary.map((s) => {
+                      const poWeight = poDetailMap.get(s.speciesId);
+                      const totalNet = Number(s.totalNetWeightKg) || 0;
+                      const isOver = poWeight != null && totalNet > poWeight;
+                      return (
+                        <tr key={s.lineId} className={`border-t border-gray-100 dark:border-gray-800 ${s.lineId === selectedLineId ? "bg-cyan/5 dark:bg-cyan/10" : ""} ${isOver ? "bg-amber-50 dark:bg-amber-950/20" : ""}`}>
+                          <td className="px-4 py-2 font-medium">{s.speciesName}</td>
+                          <td className="px-4 py-2">{s.size}</td>
+                          <td className="px-4 py-2">{s.bentuk}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{s.basketCount}</td>
+                          <td className={`px-4 py-2 text-right tabular-nums font-semibold ${isOver ? "text-amber-700 dark:text-amber-300" : ""}`}>{fmtKg(s.totalNetWeightKg)}</td>
+                          {poData && <td className="px-4 py-2 text-right tabular-nums text-gray-500">{poWeight != null ? fmtKg(poWeight) : "—"}</td>}
+                          {poData && (
+                            <td className="px-4 py-2 text-center">
+                              {poWeight == null ? (
+                                <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">UNPLANNED</span>
+                              ) : isOver ? (
+                                <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">OVER-RECEIVE</span>
+                              ) : (
+                                <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/30 dark:text-green-300">OK</span>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
+            <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Log Timbangan {selectedLine ? `— ${selectedLine.speciesName}` : "(semua)"}
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-left text-gray-600 dark:bg-white/5 dark:text-gray-400">
+                    <th className="px-4 py-2 font-medium">Basket</th>
+                    <th className="px-4 py-2 font-medium">Jenis Ikan</th>
+                    <th className="px-4 py-2 font-medium text-right">Gross (kg)</th>
+                    <th className="px-4 py-2 font-medium text-right">Tare (kg)</th>
+                    <th className="px-4 py-2 font-medium text-right">Net (kg)</th>
+                    <th className="px-4 py-2 font-medium">Size</th>
+                    <th className="px-4 py-2 font-medium">SKU</th>
+                    <th className="px-4 py-2 font-medium">Grade</th>
+                    <th className="px-4 py-2 font-medium text-right">Suhu</th>
+                    <th className="px-4 py-2 font-medium text-center">Reject</th>
+                    <th className="px-4 py-2 font-medium">Petugas</th>
+                    {canEditLogs && <th className="px-4 py-2 font-medium">Aksi</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.length === 0 ? (
+                    <tr><td colSpan={canEditLogs ? 12 : 11} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
+                  ) : (
+                    logPagination.visibleItems.map((row) => (
+                      <tr key={row.id} className="border-t border-gray-100 dark:border-gray-800">
+                        <td className="px-4 py-2 font-bold text-lg">{row.basketNo}</td>
+                        <td className="px-4 py-2 text-xs">{row.speciesName ?? "—"}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.grossWeight)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.tareWeight)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-semibold">{fmtKg(row.netWeight)}</td>
+                        <td className="px-4 py-2 text-xs">{row.itemSize ?? "—"}</td>
+                        <td className="px-4 py-2 font-mono text-[11px]">{row.fishSkuCode ?? "—"}</td>
+                        <td className="px-4 py-2 text-xs">{row.gradeCode ?? "—"}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-xs">{row.suhuPenerimaan != null ? String(row.suhuPenerimaan) : "—"}</td>
+                        <td className="px-4 py-2 text-center text-xs">
+                          {row.isRejectBasket ? (
+                            <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-200">Ya</span>
                           ) : (
-                            <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/30 dark:text-green-300">OK</span>
+                            <span className="text-gray-400">Tidak</span>
                           )}
                         </td>
-                      )}
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        <td className="px-4 py-2">{row.weighedBy}</td>
+                        {canEditLogs && (
+                          <td className="px-4 py-2">
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => startEditLog(row)} className={actionBtn("info", "xs")}>
+                                Edit
+                              </button>
+                              <button type="button" onClick={() => void handleDeleteLog(row.id)} className={actionBtn("danger", "xs")}>
+                                Hapus
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {logPagination.totalPages > 1 && (
+              <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => logPagination.setPage(Math.max(logPagination.page - 1, 1))}
+                  disabled={logPagination.page <= 1}
+                  className="rounded border border-gray-300 px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
+                  aria-label="Halaman sebelumnya"
+                >
+                  &lt;
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    logPagination.setPage(Math.min(logPagination.page + 1, logPagination.totalPages))
+                  }
+                  disabled={logPagination.page >= logPagination.totalPages}
+                  className="rounded border border-gray-300 px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:text-gray-200"
+                  aria-label="Halaman berikutnya"
+                >
+                  &gt;
+                </button>
+              </div>
+            )}
+          </section>
         </div>
-      </section>
-
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
-        <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            Log Timbangan {selectedLine ? `— ${selectedLine.speciesName}` : "(semua)"}
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-gray-600 dark:bg-white/5 dark:text-gray-400">
-                <th className="px-4 py-2 font-medium">Basket</th>
-                <th className="px-4 py-2 font-medium">Jenis Ikan</th>
-                <th className="px-4 py-2 font-medium text-right">Gross (kg)</th>
-                <th className="px-4 py-2 font-medium text-right">Tare (kg)</th>
-                <th className="px-4 py-2 font-medium text-right">Net (kg)</th>
-                <th className="px-4 py-2 font-medium">Size</th>
-                <th className="px-4 py-2 font-medium">SKU</th>
-                <th className="px-4 py-2 font-medium">Grade</th>
-                <th className="px-4 py-2 font-medium text-right">Suhu</th>
-                <th className="px-4 py-2 font-medium text-center">Reject</th>
-                <th className="px-4 py-2 font-medium">Petugas</th>
-                {canEditLogs && <th className="px-4 py-2 font-medium">Aksi</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.length === 0 ? (
-                <tr><td colSpan={canEditLogs ? 12 : 11} className="px-4 py-6 text-center text-gray-500">Belum ada data timbang.</td></tr>
-              ) : (
-                logs.map((row) => (
-                  <tr key={row.id} className="border-t border-gray-100 dark:border-gray-800">
-                    <td className="px-4 py-2 font-bold text-lg">{row.basketNo}</td>
-                    <td className="px-4 py-2 text-xs">{row.speciesName ?? "—"}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.grossWeight)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{fmtKg(row.tareWeight)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums font-semibold">{fmtKg(row.netWeight)}</td>
-                    <td className="px-4 py-2 text-xs">{row.itemSize ?? "—"}</td>
-                    <td className="px-4 py-2 font-mono text-[11px]">{row.fishSkuCode ?? "—"}</td>
-                    <td className="px-4 py-2 text-xs">{row.gradeCode ?? "—"}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-xs">{row.suhuPenerimaan != null ? String(row.suhuPenerimaan) : "—"}</td>
-                    <td className="px-4 py-2 text-center text-xs">
-                      {row.isRejectBasket ? (
-                        <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 font-semibold text-red-800 dark:bg-red-900/40 dark:text-red-200">Ya</span>
-                      ) : (
-                        <span className="text-gray-400">Tidak</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">{row.weighedBy}</td>
-                    {canEditLogs && (
-                      <td className="px-4 py-2">
-                        <div className="flex gap-1">
-                          <button type="button" onClick={() => startEditLog(row)} className={actionBtn("info", "xs")}>
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => void handleDeleteLog(row.id)} className={actionBtn("danger", "xs")}>
-                            Hapus
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </div>
 
       {showAddSpecies && (
         <ModalOverlay onClose={() => setShowAddSpecies(false)}>
@@ -660,9 +707,14 @@ function InboundTallyContent() {
             <div className="mb-5 border-b border-gray-100 pb-4 dark:border-gray-700">
               <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Tambah Spesies Baru</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Gunakan form ini jika ada jenis ikan di truk yang tidak ada di PO.
+                Gunakan form ini jika ada jenis ikan di truk yang tidak ada di PO. Jenis yang sudah tercantum pada PO tidak dapat ditambahkan lagi.
               </p>
             </div>
+            {addableSpeciesList.length === 0 ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Semua jenis ikan aktif sudah tercantum pada PO atau tidak tersedia untuk ditambahkan.
+              </p>
+            ) : (
             <form onSubmit={handleAddSpecies} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Field label="Jenis Ikan" required>
@@ -673,8 +725,8 @@ function InboundTallyContent() {
                     required
                   >
                     <option value="">Pilih jenis ikan</option>
-                    {speciesList.filter((s) => s.isActive).map((s) => (
-                      <option key={s.speciesId} value={s.speciesId}>{s.speciesCode} — {s.speciesName}</option>
+                    {addableSpeciesList.map((s) => (
+                      <option key={s.speciesId} value={s.speciesId}>{s.speciesName}</option>
                     ))}
                   </select>
                 </Field>
@@ -686,7 +738,7 @@ function InboundTallyContent() {
                   >
                     <option value="">Pilih bentuk</option>
                     {formList.filter((f) => f.isActive).map((f) => (
-                      <option key={f.formId} value={f.formId}>{f.formCode} — {f.formName}</option>
+                      <option key={f.formId} value={f.formId}>{f.formName}</option>
                     ))}
                   </select>
                 </Field>
@@ -714,6 +766,7 @@ function InboundTallyContent() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </ModalOverlay>
       )}
