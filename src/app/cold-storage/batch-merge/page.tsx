@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
 import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import ConfirmActionModal from "@/components/cold-storage/ConfirmActionModal";
 import RejectBatchLegend from "@/components/cold-storage/RejectBatchLegend";
 import { isInboundRejectBatchRow, rejectBatchRowClass } from "@/lib/batch-quality";
 import Button from "@/components/ui/Button";
@@ -15,8 +16,12 @@ import {
   useClientTablePagination,
 } from "@/components/ui/TableListPagination";
 import { getColdStorages } from "@/lib/expiry";
-import { listColdStorageStocks, mergeColdStorageBatches } from "@/lib/coldstorage-api";
-import { alertErrorClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
+import {
+  COLD_STORAGE_PENDING_APPROVAL_MSG,
+  listColdStorageStocks,
+  mergeColdStorageBatches,
+} from "@/lib/coldstorage-api";
+import { alertErrorClass, alertSuccessClass, inputClass, labelClass } from "@/lib/coldstorage-ui";
 import type { ColdStorageData } from "@/types";
 import type { BatchMergeResponseData, ColdStorageStockRow } from "@/types/coldstorage";
 
@@ -43,7 +48,9 @@ function BatchMergePageInner() {
   const [result, setResult] = useState<BatchMergeResponseData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (lockedWarehouse && Number.isFinite(Number(presetCs))) {
@@ -103,9 +110,27 @@ function BatchMergePageInner() {
     [mergeableRows, survivorId]
   );
 
+  function donorCompatibleWith(survivor: ColdStorageStockRow, row: ColdStorageStockRow) {
+    if (isRejectBatch(row) !== isRejectBatch(survivor)) return false;
+    if (
+      survivor.speciesId != null &&
+      row.speciesId != null &&
+      row.speciesId !== survivor.speciesId
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   function donorCompatibleWithSurvivor(row: ColdStorageStockRow) {
     if (!survivorRow) return true;
-    return isRejectBatch(row) === isRejectBatch(survivorRow);
+    return donorCompatibleWith(survivorRow, row);
+  }
+
+  function speciesMatchesSurvivor(row: ColdStorageStockRow) {
+    if (!survivorRow) return true;
+    if (survivorRow.speciesId == null || row.speciesId == null) return true;
+    return row.speciesId === survivorRow.speciesId;
   }
 
   function selectSurvivor(batchId: number) {
@@ -117,7 +142,7 @@ function BatchMergePageInner() {
       for (const id of prev) {
         if (id === batchId) continue;
         const d = mergeableRows.find((r) => r.batchId === id);
-        if (d && isRejectBatch(d) === isRejectBatch(row)) next.add(id);
+        if (d && donorCompatibleWith(row, d)) next.add(id);
       }
       return next;
     });
@@ -135,7 +160,7 @@ function BatchMergePageInner() {
     });
   }
 
-  async function handleMerge() {
+  async function doMerge() {
     if (survivorId === "" || donorIds.size === 0) {
       setError("Pilih batch penerima dan minimal satu batch donor.");
       return;
@@ -146,15 +171,33 @@ function BatchMergePageInner() {
       setError("Tidak dapat menggabung batch reject dengan batch non-reject.");
       return;
     }
+    if (
+      survivor &&
+      donors.some(
+        (d) =>
+          d.speciesId != null &&
+          survivor.speciesId != null &&
+          d.speciesId !== survivor.speciesId
+      )
+    ) {
+      setError("Tidak dapat menggabung batch dengan species berbeda.");
+      return;
+    }
     setBusy(true);
     setError(null);
+    setSuccess(null);
     setResult(null);
     try {
       const data = await mergeColdStorageBatches({
         survivorBatchId: Number(survivorId),
         donorBatchIds: Array.from(donorIds),
       });
-      setResult(data);
+      if (data.status === "pending") {
+        setSuccess(data.message ?? COLD_STORAGE_PENDING_APPROVAL_MSG);
+        setDonorIds(new Set());
+        return;
+      }
+      setResult(data.data);
       if (warehouseId !== "") {
         const refreshed = await listColdStorageStocks({ warehouseId: Number(warehouseId) });
         setRows(refreshed);
@@ -167,7 +210,16 @@ function BatchMergePageInner() {
       setError(String(msg));
     } finally {
       setBusy(false);
+      setConfirmOpen(false);
     }
+  }
+
+  function handleMerge() {
+    if (survivorId === "" || donorIds.size === 0) {
+      setError("Pilih batch penerima dan minimal satu batch donor.");
+      return;
+    }
+    setConfirmOpen(true);
   }
 
   return (
@@ -180,9 +232,8 @@ function BatchMergePageInner() {
       </header>
       <ColdStorageModuleNav />
 
-      {error && (
-        <div className={alertErrorClass}>{error}</div>
-      )}
+      {error && <div className={alertErrorClass}>{error}</div>}
+      {success && <div className={alertSuccessClass}>{success}</div>}
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <label className={labelClass}>Cold storage</label>
@@ -237,13 +288,18 @@ function BatchMergePageInner() {
               </thead>
               <tbody>
                 {mergePagination.visibleItems.map((r) => {
+                  const speciesMismatch = survivorRow != null && !speciesMatchesSurvivor(r);
                   const donorDisabled =
                     survivorId === r.batchId ||
+                    speciesMismatch ||
                     (survivorRow != null && !donorCompatibleWithSurvivor(r));
+                  const rowMuted = speciesMismatch && survivorId !== r.batchId;
                   return (
                   <tr
                     key={r.batchId}
-                    className={`border-b border-gray-100 dark:border-gray-800 ${isRejectBatch(r) ? rejectBatchRowClass : ""}`}
+                    className={`border-b border-gray-100 dark:border-gray-800 ${
+                      isRejectBatch(r) ? rejectBatchRowClass : ""
+                    } ${rowMuted ? "opacity-50" : ""}`}
                   >
                     <td className="px-2 py-2">
                       <input
@@ -259,7 +315,9 @@ function BatchMergePageInner() {
                         disabled={donorDisabled}
                         title={
                           donorDisabled && survivorRow && survivorId !== r.batchId
-                            ? "Donor harus sama jenisnya dengan batch penerima (reject atau non-reject)"
+                            ? isRejectBatch(r) !== isRejectBatch(survivorRow)
+                              ? "Donor harus sama jenisnya dengan batch penerima (reject atau non-reject)"
+                              : "Donor harus memiliki species yang sama dengan batch penerima"
                             : undefined
                         }
                         checked={donorIds.has(r.batchId)}
@@ -300,7 +358,7 @@ function BatchMergePageInner() {
             )}
           <Button
             type="button"
-            onClick={() => void handleMerge()}
+            onClick={handleMerge}
             disabled={busy || survivorId === "" || donorIds.size === 0}
           >
             {busy ? "Menggabung..." : "Gabungkan"}
@@ -312,6 +370,17 @@ function BatchMergePageInner() {
             </div>
           )}
         </section>
+      )}
+
+      {confirmOpen && survivorRow && (
+        <ConfirmActionModal
+          title="Gabung Batch"
+          message={`Yakin menggabung ${donorIds.size} batch donor ke batch penerima ${survivorRow.batchNumber}?`}
+          confirmLabel="Gabungkan"
+          busy={busy}
+          onConfirm={() => void doMerge()}
+          onCancel={() => setConfirmOpen(false)}
+        />
       )}
 
       {result && (
@@ -348,7 +417,7 @@ function BatchMergePageInner() {
             </div>
           ) : null}
           <Link
-            href={`/batch-activity/traceability`}
+            href={`/batch-activity/traceability?batchId=${result.survivorBatchId}`}
             className="mt-4 inline-flex rounded-lg border border-green-300 bg-white px-3 py-2 text-xs font-semibold text-green-800 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100"
           >
             Lihat traceability batch survivor

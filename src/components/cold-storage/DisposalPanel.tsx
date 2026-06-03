@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/ui/Button";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+import ConfirmActionModal from "@/components/cold-storage/ConfirmActionModal";
 import {
+  COLD_STORAGE_PENDING_APPROVAL_MSG,
   disposeBatchMultipart,
   downloadDisposalBeritaAcara,
   listColdStorageStocks,
@@ -10,17 +13,15 @@ import {
 } from "@/lib/coldstorage-api";
 import {
   TableListPaginationFooter,
-  TableListPaginationToolbar,
 } from "@/components/ui/TableListPagination";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
+import { formatIdDateTime, resolveActorDisplay } from "@/lib/coldstorage-format";
 import {
   alertErrorClass,
   alertSuccessClass,
   btnLightCyanClass,
   inputClass,
   labelClass,
-  textBody,
-  textHeadingLg,
   textMuted,
   textMutedXs,
 } from "@/lib/coldstorage-ui";
@@ -29,35 +30,46 @@ import type {
   DisposalResponse,
 } from "@/types/coldstorage";
 
-/**
- * Panel untuk E05-PBI-05 (Pencatatan Disposal Stok Expired).
- *
- * - Dropdown batch dengan stok tersedia (tidak terbatas status EXPIRED).
- * - Unggah Berita Acara Pemusnahan (wajib).
- * - Field jumlah dan alasan wajib diisi.
- * - Menampilkan pesan sukses "Disposal berhasil dicatat".
- */
+function formatDisposalQtyLine(h: DisposalResponse) {
+  const unit = (h.unit ?? "KG").toUpperCase();
+  const qty = h.jumlahDibuang;
+  const reason = h.alasan?.trim() ? ` (${h.alasan.trim()})` : "";
+  return `${qty} ${unit}${reason}`;
+}
+
+const DISPOSAL_HISTORY_PAGE_SIZE = 5;
+
 export default function DisposalPanel() {
   const [availableStocks, setAvailableStocks] = useState<ColdStorageStockRow[]>([]);
   const [history, setHistory] = useState<DisposalResponse[]>([]);
   const [historyUiPage, setHistoryUiPage] = useState(1);
-  const [historyPageSize, setHistoryPageSize] = useState(10);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
   const [historyTotalElements, setHistoryTotalElements] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const [batchId, setBatchId] = useState<number | "">("");
+  const [batchId, setBatchId] = useState("");
   const [jumlahDibuang, setJumlahDibuang] = useState<string>("");
   const [alasan, setAlasan] = useState("");
   const [beritaAcara, setBeritaAcara] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const batchOptions = useMemo(
+    () =>
+      availableStocks.map((s) => ({
+        value: String(s.batchId),
+        label: `${s.batchNumber} — ${s.speciesName ?? "—"} (sisa ${s.jumlahStok} ${s.unit ?? ""})`,
+        searchText: `${s.batchNumber} ${s.speciesName ?? ""}`,
+      })),
+    [availableStocks]
+  );
+
   const selectedBatch = useMemo(
-    () => availableStocks.find((s) => s.batchId === batchId) ?? null,
+    () => availableStocks.find((s) => String(s.batchId) === batchId) ?? null,
     [availableStocks, batchId]
   );
 
@@ -71,10 +83,10 @@ export default function DisposalPanel() {
     );
   }
 
-  async function loadHistory(apiPage = historyUiPage - 1, size = historyPageSize) {
+  async function loadHistory(apiPage = historyUiPage - 1) {
     setHistoryLoading(true);
     try {
-      const paged = await listDisposalHistoryPaged(apiPage, size);
+      const paged = await listDisposalHistoryPaged(apiPage, DISPOSAL_HISTORY_PAGE_SIZE);
       setHistory(paged.content ?? []);
       setHistoryTotalPages(Math.max(1, paged.totalPages ?? 1));
       setHistoryTotalElements(paged.totalElements ?? 0);
@@ -104,13 +116,7 @@ export default function DisposalPanel() {
 
   const handleHistoryPageChange = (page: number) => {
     setHistoryUiPage(page);
-    void loadHistory(page - 1, historyPageSize);
-  };
-
-  const handleHistoryPageSizeChange = (size: number) => {
-    setHistoryPageSize(size);
-    setHistoryUiPage(1);
-    void loadHistory(0, size);
+    void loadHistory(page - 1);
   };
 
   const maxQty = selectedBatch ? Number(selectedBatch.jumlahStok ?? 0) : 0;
@@ -125,34 +131,44 @@ export default function DisposalPanel() {
     alasan.trim().length > 0 &&
     !!beritaAcara;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function executeSubmit() {
     if (!canSubmit || !selectedBatch) return;
 
     setSubmitting(true);
     setError(null);
     setSuccess(null);
     try {
-      await disposeBatchMultipart({
+      const result = await disposeBatchMultipart({
         batchId: selectedBatch.batchId,
         jumlahDibuang: parsedJumlah,
         alasan: alasan.trim(),
         beritaAcara,
       });
-      setSuccess("Disposal berhasil dicatat");
+      if (result.status === "pending") {
+        setSuccess(result.message ?? COLD_STORAGE_PENDING_APPROVAL_MSG);
+      } else {
+        setSuccess("Disposal berhasil dicatat");
+      }
       setBatchId("");
       setJumlahDibuang("");
       setAlasan("");
       setBeritaAcara(null);
       setHistoryUiPage(1);
-      await Promise.all([loadStocks(), loadHistory(0, historyPageSize)]);
+      await Promise.all([loadStocks(), loadHistory(0)]);
     } catch (err) {
       const apiMessage =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(apiMessage ?? (err instanceof Error ? err.message : "Gagal mencatat disposal"));
     } finally {
       setSubmitting(false);
+      setConfirmOpen(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setConfirmOpen(true);
   }
 
   return (
@@ -165,12 +181,8 @@ export default function DisposalPanel() {
       </header>
       <ColdStorageModuleNav />
 
-      {error && (
-        <div className={alertErrorClass}>{error}</div>
-      )}
-      {success && (
-        <div className={alertSuccessClass}>{success}</div>
-      )}
+      {error && <div className={alertErrorClass}>{error}</div>}
+      {success && <div className={alertSuccessClass}>{success}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <form
@@ -183,24 +195,18 @@ export default function DisposalPanel() {
             <label className={labelClass}>
               Pilih Batch <span className="text-red-500">*</span>
             </label>
-            <select
+            <SearchableSelect
+              options={batchOptions}
               value={batchId}
-              onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : "")}
-              className={inputClass}
-              disabled={loading}
-              required
-            >
-              <option value="">
-                {availableStocks.length === 0
+              onChange={setBatchId}
+              placeholder={
+                availableStocks.length === 0
                   ? "Tidak ada batch dengan stok tersedia"
-                  : "Pilih batch..."}
-              </option>
-              {availableStocks.map((s) => (
-                <option key={s.batchId} value={s.batchId}>
-                  {s.batchNumber} — {s.speciesName} (sisa {s.jumlahStok} {s.unit ?? ""})
-                </option>
-              ))}
-            </select>
+                  : "Pilih batch..."
+              }
+              disabled={loading}
+              emptyMessage="Tidak ada batch dengan stok tersedia"
+            />
           </div>
 
           {selectedBatch && (
@@ -243,7 +249,7 @@ export default function DisposalPanel() {
               rows={3}
               maxLength={500}
               className={inputClass}
-              placeholder="Contoh: Melewati masa simpan & ditemukan kristal es..."
+              placeholder="Contoh: cacat, melewati masa simpan..."
               required
             />
           </div>
@@ -281,24 +287,22 @@ export default function DisposalPanel() {
             <p className={textMuted}>Belum ada riwayat disposal.</p>
           ) : (
             <>
-            <TableListPaginationToolbar
-              totalCount={historyTotalElements}
-              itemLabel="disposal"
-              pageSize={historyPageSize}
-              onPageSizeChange={handleHistoryPageSizeChange}
-            />
+            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+              Total: <strong className="text-gray-900 dark:text-gray-100">{historyTotalElements}</strong> disposal
+            </p>
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {history.map((h) => (
                 <li key={h.disposalId} className="py-2 text-sm">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-gray-900 dark:text-gray-100">{h.batchNumber}</span>
-                    <span className={textMutedXs}>{new Date(h.disposedAt).toLocaleString()}</span>
+                    <span className={textMutedXs}>
+                      <strong>{formatIdDateTime(h.disposedAt)}</strong>
+                    </span>
                   </div>
-                  <div className="text-gray-600 dark:text-gray-200">
-                    {h.jumlahDibuang} {h.unit ?? ""} — {h.alasan}
-                  </div>
+                  <div className="text-gray-600 dark:text-gray-200">{formatDisposalQtyLine(h)}</div>
                   <div className={textMutedXs}>
-                    Sisa stok setelah disposal: {h.remainingAfterDisposal} — oleh {h.disposedBy ?? "system"}
+                    Sisa stok setelah disposal: {h.remainingAfterDisposal} kg (oleh{" "}
+                    {resolveActorDisplay(h.disposedBy, h.disposedByName)})
                   </div>
                   {h.beritaAcaraStoredName && (
                     <div className="mt-1">
@@ -339,6 +343,17 @@ export default function DisposalPanel() {
           )}
         </section>
       </div>
+
+      {confirmOpen && selectedBatch && (
+        <ConfirmActionModal
+          title="Catat Disposal"
+          message={`Yakin membuang ${parsedJumlah} kg dari batch ${selectedBatch.batchNumber}?`}
+          confirmLabel="Dispose"
+          busy={submitting}
+          onConfirm={() => void executeSubmit()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { ModalOverlay, Field } from "@/components/inbound-fish/ModalPrimitives";
@@ -22,6 +22,12 @@ import {
   TableListPaginationToolbar,
   useClientTablePagination,
 } from "@/components/ui/TableListPagination";
+import {
+  ListFilterField,
+  ListFilterSection,
+  listFilterInputClass,
+} from "@/components/inbound-fish/ListFilterSection";
+import { matchesContainsSearch, sanitizeSearchQuery } from "@/lib/safe-search";
 
 function fmtKg(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? Number(v) : v;
@@ -69,7 +75,33 @@ function PurchaseOrdersContent() {
   const [lockingPoId, setLockingPoId] = useState<number | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set());
-  const pagination = useClientTablePagination(pos);
+  const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [filterArrivalDate, setFilterArrivalDate] = useState("");
+  const [filterPoCode, setFilterPoCode] = useState("");
+
+  const supplierFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const po of pos) {
+      if (po.supplierId) map.set(po.supplierId, po.supplierName);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [pos]);
+
+  const filteredPos = useMemo(() => {
+    const poCodeQuery = sanitizeSearchQuery(filterPoCode);
+    return pos.filter((po) => {
+      if (filterSupplierId && po.supplierId !== filterSupplierId) return false;
+      if (filterArrivalDate && !po.expectedArrivalDate.startsWith(filterArrivalDate)) return false;
+      if (poCodeQuery && !matchesContainsSearch(po.poCode, poCodeQuery)) return false;
+      return true;
+    });
+  }, [pos, filterSupplierId, filterArrivalDate, filterPoCode]);
+
+  const pagination = useClientTablePagination(filteredPos, {
+    resetDeps: [filterSupplierId, filterArrivalDate, filterPoCode, pos.length],
+  });
 
   useEffect(() => {
     if (!toast) return;
@@ -125,6 +157,49 @@ function PurchaseOrdersContent() {
         </div>
       )}
 
+      <ListFilterSection
+        description="Filter daftar Purchase Order (real-time)."
+        columnsClass="sm:grid-cols-2 lg:grid-cols-3"
+        onReset={() => {
+          setFilterSupplierId("");
+          setFilterArrivalDate("");
+          setFilterPoCode("");
+        }}
+      >
+        <ListFilterField label="Supplier">
+          <select
+            value={filterSupplierId}
+            onChange={(e) => setFilterSupplierId(e.target.value)}
+            className={listFilterInputClass}
+          >
+            <option value="">Semua Supplier</option>
+            {supplierFilterOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </ListFilterField>
+        <ListFilterField label="Tanggal Kedatangan">
+          <input
+            type="date"
+            value={filterArrivalDate}
+            onChange={(e) => setFilterArrivalDate(e.target.value)}
+            className={`${listFilterInputClass} dark:[color-scheme:dark]`}
+          />
+        </ListFilterField>
+        <ListFilterField label="Kode PO">
+          <input
+            type="search"
+            value={filterPoCode}
+            onChange={(e) => setFilterPoCode(e.target.value)}
+            placeholder="Cari kode PO"
+            maxLength={64}
+            className={listFilterInputClass}
+          />
+        </ListFilterField>
+      </ListFilterSection>
+
       <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar PO</h2>
@@ -151,8 +226,12 @@ function PurchaseOrdersContent() {
               </tr>
             </thead>
             <tbody>
-              {pos.length === 0 && !loading && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Belum ada Purchase Order.</td></tr>
+              {filteredPos.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    {pos.length === 0 ? "Belum ada Purchase Order." : "Tidak ada PO yang cocok dengan filter."}
+                  </td>
+                </tr>
               )}
               {pagination.visibleItems.map((po) => {
                 const open = expandedIds.has(po.poId);
@@ -511,14 +590,14 @@ function AddPOModal({
               <Field label="Jenis Ikan" required>
                 <select value={row.speciesId === "" ? "" : row.speciesId} onChange={(e) => updateLine(row.key, { speciesId: e.target.value === "" ? "" : Number(e.target.value) })} disabled={loadingMasters} className={`${inputCls} disabled:bg-gray-100`}>
                   <option value="">{loadingMasters ? "Memuat…" : "Pilih Jenis Ikan"}</option>
-                  {speciesOptions.map((s) => <option key={s.speciesId} value={s.speciesId}>{s.speciesCode} — {s.speciesName}</option>)}
+                  {speciesOptions.map((s) => <option key={s.speciesId} value={s.speciesId}>{s.speciesName}</option>)}
                 </select>
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Bentuk" required>
                   <select value={row.formId === "" ? "" : row.formId} onChange={(e) => updateLine(row.key, { formId: e.target.value === "" ? "" : Number(e.target.value) })} disabled={loadingMasters} className={`${inputCls} disabled:bg-gray-100`}>
                     <option value="">{loadingMasters ? "Memuat…" : "Pilih bentuk"}</option>
-                    {formOptions.map((f) => <option key={f.formId} value={f.formId}>{f.formCode} — {f.formName}</option>)}
+                    {formOptions.map((f) => <option key={f.formId} value={f.formId}>{f.formName}</option>)}
                   </select>
                 </Field>
                 <Field label="Size" required>

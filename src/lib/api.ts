@@ -5,6 +5,10 @@ const apiClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+<<<<<<< HEAD
+  timeout: 60000,
+=======
+>>>>>>> 03feec1b3a5f76469f58ad70fe98bc5b3c73a796
 });
 
 // ── Request interceptor ─────────────────────────────────

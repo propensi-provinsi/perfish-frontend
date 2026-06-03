@@ -28,6 +28,12 @@ import {
   TableListPaginationToolbar,
   useClientTablePagination,
 } from "@/components/ui/TableListPagination";
+import {
+  ListFilterField,
+  ListFilterSection,
+  listFilterInputClass,
+} from "@/components/inbound-fish/ListFilterSection";
+import { matchesContainsSearch, sanitizeSearchQuery } from "@/lib/safe-search";
 
 type InboundReceipt = {
   id: string;
@@ -108,6 +114,9 @@ function RingkasanSupplierContent() {
   const [paymentTerms, setPaymentTerms] = useState<PaymentTermOption[]>([]);
   const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
   const [toast, setToast] = useState<Toast>(null);
+  const [filterType, setFilterType] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"" | "active" | "inactive">("");
+  const [filterName, setFilterName] = useState("");
 
   const canEditApproval = canApproveSupplier(user?.role);
   const canAddSupplier = canAddSupplierFromRingkasan(user?.role);
@@ -180,8 +189,27 @@ function RingkasanSupplierContent() {
     });
   }, [suppliers, inbounds]);
 
-  const pagination = useClientTablePagination(rows, {
-    resetDeps: [suppliers.length, inbounds.length],
+  const supplierTypeOptions = useMemo(() => {
+    const types = new Set<string>();
+    for (const s of suppliers) {
+      if (s.supplierType?.trim()) types.add(s.supplierType.trim());
+    }
+    return Array.from(types).sort((a, b) => a.localeCompare(b));
+  }, [suppliers]);
+
+  const filteredRows = useMemo(() => {
+    const nameQuery = sanitizeSearchQuery(filterName);
+    return rows.filter(({ supplier }) => {
+      if (filterType && supplier.supplierType !== filterType) return false;
+      if (filterStatus === "active" && !supplier.active) return false;
+      if (filterStatus === "inactive" && supplier.active) return false;
+      if (nameQuery && !matchesContainsSearch(supplier.supplierName, nameQuery)) return false;
+      return true;
+    });
+  }, [rows, filterType, filterStatus, filterName]);
+
+  const pagination = useClientTablePagination(filteredRows, {
+    resetDeps: [filterType, filterStatus, filterName, suppliers.length, inbounds.length],
   });
 
   async function handleApprovalChange(supplier: SupplierData, next: MasterSupplierApprovalStatus) {
@@ -247,6 +275,48 @@ function RingkasanSupplierContent() {
         )}
       </section>
 
+      <ListFilterSection
+        description="Filter daftar supplier (real-time)."
+        columnsClass="sm:grid-cols-2 lg:grid-cols-3"
+        onReset={() => {
+          setFilterType("");
+          setFilterStatus("");
+          setFilterName("");
+        }}
+      >
+        <ListFilterField label="Tipe">
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className={listFilterInputClass}>
+            <option value="">Semua Tipe</option>
+            {supplierTypeOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </ListFilterField>
+        <ListFilterField label="Status">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as "" | "active" | "inactive")}
+            className={listFilterInputClass}
+          >
+            <option value="">Semua Status</option>
+            <option value="active">Aktif</option>
+            <option value="inactive">Nonaktif</option>
+          </select>
+        </ListFilterField>
+        <ListFilterField label="Nama Supplier">
+          <input
+            type="search"
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            placeholder="Cari nama supplier"
+            maxLength={64}
+            className={listFilterInputClass}
+          />
+        </ListFilterField>
+      </ListFilterSection>
+
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-dark-card">
         <div className="flex items-center justify-between px-4 py-3">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daftar Supplier</h2>
@@ -275,10 +345,10 @@ function RingkasanSupplierContent() {
               </tr>
             </thead>
             <tbody>
-              {!loading && rows.length === 0 && (
+              {!loading && filteredRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                    Belum ada supplier.
+                    {rows.length === 0 ? "Belum ada supplier." : "Tidak ada supplier yang cocok dengan filter."}
                   </td>
                 </tr>
               )}
@@ -296,7 +366,7 @@ function RingkasanSupplierContent() {
                         rowDimmed ? "pointer-events-none opacity-40 blur-[2px]" : ""
                       } ${rowFocused ? "relative z-10 bg-white/95 dark:bg-dark-card/95" : ""}`}
                     >
-                      <td className="px-4 py-3 font-mono text-xs">{supplier.supplierCode}</td>
+                      <td className="px-4 py-3 font-mono text-xs font-bold">{supplier.supplierCode}</td>
                       <td className="px-4 py-3 font-medium">{supplier.supplierName}</td>
                       <td className="px-4 py-3">{supplier.supplierType}</td>
                       <td className="px-4 py-3 text-sm">

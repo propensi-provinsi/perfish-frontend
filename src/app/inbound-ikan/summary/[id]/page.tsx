@@ -55,6 +55,69 @@ function formatDateDdMmYyyy(isoDate: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function normalizePoLineSize(size: string | null | undefined): string {
+  return (size ?? "").trim().toLowerCase() || "-";
+}
+
+function poLineKey(speciesId: number | null | undefined, size: string | null | undefined): string {
+  return `${speciesId ?? ""}|${normalizePoLineSize(size)}`;
+}
+
+function receivedKgForPoDetail(
+  detail: { speciesId: number | null; speciesName: string | null; itemSize: string | null },
+  batches: PalletizationBatch[],
+  lines: InboundReceiptRow["lines"],
+): number {
+  const speciesName = (detail.speciesName ?? "").trim().toLowerCase();
+  if (batches.length > 0) {
+    return batches
+      .filter((b) => !isInboundRejectBatch(b) && (b.speciesName ?? "").trim().toLowerCase() === speciesName)
+      .reduce((sum, b) => sum + toNumKg(b.netWeightKg), 0);
+  }
+  const line = lines.find(
+    (l) => l.speciesId === detail.speciesId && normalizePoLineSize(l.size) === normalizePoLineSize(detail.itemSize),
+  );
+  if (!line) return 0;
+  return toNumKg(line.acceptedWeightKg) || toNumKg(line.qcTotalBeratKg);
+}
+
+type PoExtraSpeciesRow = {
+  speciesId: number;
+  speciesName: string;
+  size: string;
+  receivedKg: number;
+};
+
+function extraSpeciesBeyondPo(
+  poDetails: PurchaseOrderRow["details"],
+  batches: PalletizationBatch[],
+  lines: InboundReceiptRow["lines"],
+): PoExtraSpeciesRow[] {
+  const poKeys = new Set(poDetails.map((d) => poLineKey(d.speciesId, d.itemSize)));
+  const extras: PoExtraSpeciesRow[] = [];
+  const seenLineKeys = new Set<string>();
+
+  for (const line of lines) {
+    const key = poLineKey(line.speciesId, line.size);
+    if (poKeys.has(key) || seenLineKeys.has(key)) continue;
+    seenLineKeys.add(key);
+    const speciesName = line.speciesName;
+    const receivedKg =
+      batches.length > 0
+        ? batches
+            .filter((b) => !isInboundRejectBatch(b) && (b.speciesName ?? "").trim() === speciesName.trim())
+            .reduce((sum, b) => sum + toNumKg(b.netWeightKg), 0)
+        : toNumKg(line.acceptedWeightKg) || toNumKg(line.qcTotalBeratKg);
+    extras.push({
+      speciesId: line.speciesId,
+      speciesName,
+      size: line.size,
+      receivedKg,
+    });
+  }
+  return extras;
+}
+
 export default function InboundSummaryPage() {
   return (
     <ProtectedRoute allowedRoles={INBOUND_RECEIPT_READ_ROLES}>
@@ -154,6 +217,10 @@ function InboundSummaryContent() {
     po?.details?.reduce((s, d) => s + (d.orderedWeightKg != null ? Number(d.orderedWeightKg) : 0), 0) ?? 0;
   const poReceiveStatus: PoReceiveComparison | null =
     batches.length > 0 && poOrderedTotalKg > 0 ? comparePoInboundKg(poOrderedTotalKg, totalBatchNetKg) : null;
+
+  const extraPoSpecies =
+    po != null ? extraSpeciesBeyondPo(po.details ?? [], batches, receipt.lines) : [];
+  const hasExtraPoSpecies = extraPoSpecies.length > 0;
 
   const isPending = receipt.status === "PENDING";
   const canAct =
@@ -273,6 +340,19 @@ function InboundSummaryContent() {
                 {poReceiveComparisonMessage(poReceiveStatus)}
               </p>
             )}
+            {hasExtraPoSpecies && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                <p className="font-semibold">Penambahan jenis di luar PO awal</p>
+                <p className="mt-1 text-amber-800 dark:text-amber-200">
+                  Terdapat jenis ikan yang ditambahkan saat penerimaan dan tidak tercantum pada PO{" "}
+                  <span className="font-mono font-semibold">{po.poCode}</span>:{" "}
+                  {extraPoSpecies
+                    .map((row) => `${row.speciesName}${row.size ? ` (${row.size})` : ""} — ${fmtKg(row.receivedKg)} kg`)
+                    .join("; ")}
+                  .
+                </p>
+              </div>
+            )}
             <div className="overflow-x-auto border border-gray-100 rounded-lg dark:border-gray-700">
               <table className="min-w-full text-xs">
                 <thead>
@@ -281,15 +361,41 @@ function InboundSummaryContent() {
                     <th className="px-3 py-2 font-medium">Jenis</th>
                     <th className="px-3 py-2 font-medium">Size</th>
                     <th className="px-3 py-2 font-medium text-right">Pesan (kg)</th>
+                    <th className="px-3 py-2 font-medium text-right">Diterima (kg)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {po.details?.map((d, i) => (
-                    <tr key={d.poDetailId ?? i} className="border-t border-gray-100 dark:border-gray-800">
-                      <td className="px-3 py-2 font-mono text-[11px]">#{i + 1}</td>
-                      <td className="px-3 py-2">{d.speciesName ?? "—"}</td>
-                      <td className="px-3 py-2">{d.itemSize ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{fmtKg(d.orderedWeightKg)}</td>
+                  {po.details?.map((d, i) => {
+                    const receivedKg = receivedKgForPoDetail(d, batches, receipt.lines);
+                    return (
+                      <tr key={d.poDetailId ?? i} className="border-t border-gray-100 dark:border-gray-800">
+                        <td className="px-3 py-2 font-mono text-[11px]">#{i + 1}</td>
+                        <td className="px-3 py-2">{d.speciesName ?? "—"}</td>
+                        <td className="px-3 py-2">{d.itemSize ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtKg(d.orderedWeightKg)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
+                          {batches.length || receivedKg > 0 ? fmtKg(receivedKg) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {extraPoSpecies.map((row) => (
+                    <tr
+                      key={`extra-${row.speciesId}-${row.size}`}
+                      className="border-t border-amber-100 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/20"
+                    >
+                      <td className="px-3 py-2 font-mono text-[11px] text-amber-800 dark:text-amber-200">+</td>
+                      <td className="px-3 py-2 font-medium text-amber-900 dark:text-amber-100">
+                        {row.speciesName}
+                        <span className="ml-1.5 inline-flex rounded-full bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/60 dark:text-amber-100">
+                          Tambahan
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-amber-900 dark:text-amber-100">{row.size || "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-amber-800 dark:text-amber-200">—</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-amber-900 dark:text-amber-100">
+                        {fmtKg(row.receivedKg)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -401,18 +507,18 @@ function InboundSummaryContent() {
       )}
 
       {showApproveConfirm && (
-        <ModalOverlay onClose={() => setShowApproveConfirm(false)}>
-          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-dark-card space-y-4">
+        <ModalOverlay onClose={() => setShowApproveConfirm(false)} hideCloseButton panelClassName="max-w-md rounded-2xl border border-gray-200 dark:border-gray-700">
+          <div className="space-y-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Konfirmasi Approval</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               Yakin ingin menyetujui penerimaan <span className="font-mono font-semibold">{receipt.batchCode}</span>? Batch akan menjadi tersedia (AVAILABLE).
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowApproveConfirm(false)} className={actionBtn("neutral")}>
-                Batal
+                Tidak
               </button>
               <button type="button" onClick={() => void handleApprove()} disabled={processing} className={actionBtn("success")}>
-                {processing ? "Memproses…" : "Ya, Approve"}
+                {processing ? "Memproses…" : "Yakin"}
               </button>
             </div>
           </div>
@@ -420,8 +526,8 @@ function InboundSummaryContent() {
       )}
 
       {showRejectModal && (
-        <ModalOverlay onClose={() => setShowRejectModal(false)}>
-          <div className="w-full max-w-xl rounded-2xl border border-red-100 bg-white p-6 shadow-2xl dark:border-red-900/50 dark:bg-dark-card space-y-5">
+        <ModalOverlay onClose={() => setShowRejectModal(false)} hideCloseButton panelClassName="max-w-xl rounded-2xl border border-red-100 dark:border-red-900/50">
+          <div className="space-y-5">
             <div>
               <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">Reject Penerimaan</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -441,7 +547,7 @@ function InboundSummaryContent() {
             </Field>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowRejectModal(false)} className={actionBtn("neutral")}>
-                Batal
+                Tidak
               </button>
               <button
                 type="button"

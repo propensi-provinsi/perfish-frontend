@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import Button from "@/components/ui/Button";
 import { getBatchDetailByNumber } from "@/lib/coldstorage-api";
+import { formatIdDateTime, resolveActorDisplay } from "@/lib/coldstorage-format";
 import { batchDetailQrValue } from "@/lib/batch-detail-url";
 import { stockCategoryStatusBadgeClass } from "@/lib/coldstorage-status";
 import {
@@ -15,7 +16,11 @@ import {
   textHeadingLg,
   textMuted,
 } from "@/lib/coldstorage-ui";
-import type { BatchDetailResponse } from "@/types/coldstorage";
+import {
+  TableListPaginationFooter,
+  useClientTablePagination,
+} from "@/components/ui/TableListPagination";
+import type { BatchDetailResponse, BatchTimelineItem } from "@/types/coldstorage";
 import { actionBtn } from "@/lib/ui-action";
 
 function fmtQty(v: number | string | null | undefined): string {
@@ -32,12 +37,16 @@ function fmtTemp(v: number | string | null | undefined): string {
   return `${n} °C`;
 }
 
-function fmtInstant(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("id-ID");
-  } catch {
-    return iso;
+function timelineDotClass(type: string): string {
+  switch (type) {
+    case "BATCH_MERGE":
+      return "bg-violet-500 ring-violet-200 dark:ring-violet-900";
+    case "OUTBOUND":
+      return "bg-orange-500 ring-orange-200 dark:ring-orange-900";
+    case "DISPOSAL":
+      return "bg-red-500 ring-red-200 dark:ring-red-900";
+    default:
+      return "bg-cyan ring-cyan/30";
   }
 }
 
@@ -48,6 +57,23 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
       <dd className={`text-sm ${textBodySm}`}>{value}</dd>
     </div>
   );
+}
+
+function timelineItemClass(type: string): string {
+  switch (type) {
+    case "BATCH_MERGE":
+      return "rounded-lg border border-violet-100 bg-violet-50/50 p-3 dark:border-violet-900/40 dark:bg-violet-950/20";
+    case "OUTBOUND":
+      return "rounded-lg border border-orange-100 bg-orange-50/50 p-3 dark:border-orange-900/40 dark:bg-orange-950/20";
+    default:
+      return "";
+  }
+}
+
+const TIMELINE_PAGE_SIZE = 5;
+
+function sortTimelineNewestFirst(items: BatchTimelineItem[]): BatchTimelineItem[] {
+  return [...items].sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
 }
 
 export default function BatchDetailView({ batchNumber }: { batchNumber: string }) {
@@ -90,6 +116,16 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
   const skuCode = data?.fishSkuCode ?? data?.currentStock?.fishSkuCode ?? "—";
   const kategori = data?.batch.kategoriStatus ?? data?.currentStock?.kategoriStatus;
 
+  const timelineItems = useMemo(
+    () => sortTimelineNewestFirst(data?.history.timeline ?? []),
+    [data?.history.timeline],
+  );
+
+  const timelinePagination = useClientTablePagination(timelineItems, {
+    initialPageSize: TIMELINE_PAGE_SIZE,
+    resetDeps: [batchNumber, timelineItems.length],
+  });
+
   if (loading) {
     return <p className={textMuted}>Memuat detail batch…</p>;
   }
@@ -106,6 +142,7 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
   }
 
   const { batch, inLoadingBay, currentStock, assignContext, history, storageTempC } = data;
+  const inboundRejectReason = data.inboundRejectReason?.trim() || null;
 
   return (
     <div className="space-y-6">
@@ -149,6 +186,9 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
           <dl className="mt-4 space-y-3">
             <DetailRow label="Species" value={batch.fishSpeciesName ?? "—"} />
             <DetailRow label="Grade" value={gradeLabel} />
+            {inboundRejectReason ? (
+              <DetailRow label="Alasan Reject Mutu" value={inboundRejectReason} />
+            ) : null}
             <DetailRow label="SKU" value={skuCode} />
             <DetailRow
               label="Stok Saat Ini"
@@ -239,22 +279,35 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
         </section>
       </div>
 
-      {history.timeline.length > 0 && (
+      {timelineItems.length > 0 && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-dark-card">
           <h2 className={textHeadingLg}>Linimasa</h2>
           <ol className="mt-4 space-y-4 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
-            {history.timeline.map((item, idx) => (
-              <li key={`${item.timestamp}-${idx}`} className="relative">
-                <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-cyan" />
-                <p className="text-xs text-gray-500 dark:text-gray-400">{fmtInstant(item.timestamp)}</p>
+            {timelinePagination.visibleItems.map((item, idx) => (
+              <li key={`${item.timestamp}-${idx}`} className={`relative ${timelineItemClass(item.type)}`}>
+                <span
+                  className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ring-2 ${timelineDotClass(item.type)}`}
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <strong>{formatIdDateTime(item.timestamp)}</strong>
+                </p>
                 <p className="font-medium text-gray-900 dark:text-gray-100">{item.title}</p>
                 <p className={`text-sm ${textBodySm}`}>{item.description}</p>
                 {item.actor ? (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">oleh {item.actor}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    oleh {resolveActorDisplay(item.actor)}
+                  </p>
                 ) : null}
               </li>
             ))}
           </ol>
+          <TableListPaginationFooter
+            page={timelinePagination.page}
+            totalPages={timelinePagination.totalPages}
+            totalCount={timelinePagination.totalCount}
+            onPageChange={timelinePagination.setPage}
+            show={timelinePagination.totalCount > TIMELINE_PAGE_SIZE}
+          />
         </section>
       )}
 
@@ -281,7 +334,7 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
                     <td className={`py-2 pr-3 ${textBodySm}`}>{m.storageArea ?? "—"}</td>
                     <td className={`py-2 pr-3 ${textBodySm}`}>{formatDateDdMmYyyy(m.tanggalMasuk)}</td>
                     <td className={`py-2 pr-3 ${textBodySm}`}>{m.isActive ? "Ya" : "Tidak"}</td>
-                    <td className={`py-2 pr-3 text-xs ${textBodySm}`}>{fmtInstant(m.movedAt)}</td>
+                    <td className={`py-2 pr-3 text-xs ${textBodySm}`}>{formatIdDateTime(m.movedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -311,7 +364,7 @@ export default function BatchDetailView({ batchNumber }: { batchNumber: string }
                     </td>
                     <td className={`py-2 pr-3 ${textBodySm}`}>{d.alasan}</td>
                     <td className={`py-2 pr-3 ${textBodySm}`}>{d.remainingAfterDisposal ?? "—"}</td>
-                    <td className={`py-2 pr-3 text-xs ${textBodySm}`}>{fmtInstant(d.disposedAt)}</td>
+                    <td className={`py-2 pr-3 text-xs ${textBodySm}`}>{formatIdDateTime(d.disposedAt)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppShell from "@/components/layout/AppShell";
 import { getAuditLogs, type AuditLogQuery } from "@/lib/audit-api";
+import { canAccessBatchActivity } from "@/lib/rbac";
 import type { AuditLogData } from "@/types";
 import { FiFilter, FiSearch, FiX, FiCheck, FiInfo } from "react-icons/fi";
 
@@ -60,7 +61,7 @@ export default function BatchActivityLogsPage() {
   }, [logs, keyword]);
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute authorize={canAccessBatchActivity}>
       <AppShell>
         <div className="p-6">
           <div className="mb-6">

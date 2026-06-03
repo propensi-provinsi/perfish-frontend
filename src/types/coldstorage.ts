@@ -33,6 +33,7 @@ export interface LoadingBayBatchRow {
   kategoriStatus?: StockCategoryStatus | null;
   qualityGrade?: QualityGrade | null;
   inboundRejectBatch?: boolean | null;
+  updatedAt?: string | null;
 }
 
 // ── E05-PBI-01: Assign Location ───────────────────────────────────
@@ -92,6 +93,8 @@ export interface ColdStorageStructureSummary {
   occupiedPositionCount?: number | null;
   availablePositionCount?: number | null;
   positionOccupancyRatePct?: number | null;
+  capacityTon?: number | string | null;
+  stockUtilizationPct?: number | null;
 }
 
 export interface ColdStorageStructureDetail {
@@ -110,6 +113,8 @@ export interface ColdStorageStructureDetail {
   occupiedPositionCount?: number | null;
   availablePositionCount?: number | null;
   positionOccupancyRatePct?: number | null;
+  capacityTon?: number | string | null;
+  stockUtilizationPct?: number | null;
   blocks: {
     blockId: number;
     blockCode: string;
@@ -163,6 +168,7 @@ export interface ColdStorageStockRow {
   kandangNominalCapacityKg?: number | string | null;
   kandangUnderCapacity?: boolean | null;
   kandangUtilizationPct?: number | string | null;
+  lastActivityAt?: string | null;
 }
 
 // ── E05-PBI-05: Disposal ──────────────────────────────────────────
@@ -184,7 +190,35 @@ export interface DisposalResponse {
   remainingAfterDisposal: number | string;
   disposedAt: string;
   disposedBy: string | null;
+  disposedByName?: string | null;
   beritaAcaraStoredName?: string | null;
+}
+
+export type ColdStorageApprovalOperationType =
+  | "MOVE_BATCH"
+  | "DISPOSAL"
+  | "BATCH_MERGE"
+  | "STOCK_OPNAME_POST";
+
+export type ColdStorageApprovalStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface ColdStorageApprovalRequest {
+  requestId: string;
+  operationType: ColdStorageApprovalOperationType;
+  status: ColdStorageApprovalStatus;
+  summaryText: string | null;
+  requestedBy: string | null;
+  requestedByName?: string | null;
+  requestedAt: string;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  pendingApproval?: boolean;
+  beritaAcaraStoredName?: string | null;
+  traceabilityBatchId?: number | null;
+  traceabilityBatchNumber?: string | null;
+  relatedSessionId?: number | null;
 }
 
 export interface StorageAreaOption {
@@ -388,4 +422,6 @@ export interface BatchDetailResponse {
   /** SKU dari inbound (batch atau weighing log). */
   fishSkuCode?: string | null;
   gradeLabel?: string | null;
+  /** Catatan alasan reject mutu inbound (Sizing & Grading). */
+  inboundRejectReason?: string | null;
 }

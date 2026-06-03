@@ -4,11 +4,14 @@ export function ModalOverlay({
   onClose,
   children,
   panelClassName,
+  hideCloseButton = false,
 }: {
   onClose: () => void;
   children: React.ReactNode;
   /** Tambahan kelas panel (sama pola dengan Master Data Supplier: default lebar max-w-2xl) */
   panelClassName?: string;
+  /** Sembunyikan tombol tutup (✕) di pojok kanan atas */
+  hideCloseButton?: boolean;
 }) {
   return (
     <div
@@ -22,14 +25,16 @@ export function ModalOverlay({
           panelClassName ?? "max-w-2xl"
         }`}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 text-lg leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-          aria-label="Tutup"
-        >
-          ✕
-        </button>
+        {!hideCloseButton && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 text-lg leading-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        )}
         {children}
       </div>
     </div>

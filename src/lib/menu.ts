@@ -66,6 +66,7 @@ const STOCK_OUTBOUND_ITEM: MenuItem = {
     { key: "pallet-allocation", label: "Data Batch Alokasi", href: "/stock-outbound/alokasi-pallet" },
     { key: "fefo-transaction", label: "Transaksi FEFO", href: "/stock-outbound/transaksi-fefo" },
     { key: "export-docs", label: "Dokumen Ekspor", href: "/stock-outbound/dokumen-ekspor" },
+    { key: "distribution-history", label: "Riwayat Distribusi", href: "/stock-outbound/riwayat-distribusi" },
   ],
 };
 
@@ -215,6 +216,47 @@ const REPORTS_MENU: MenuItem = {
     { key: "report-generate", label: "Generate Laporan", href: "/reports" },
   ],
 };
+
+const BATCH_ACTIVITY_MENU: MenuItem = {
+  key: "batch-activity",
+  label: "Batch Activity",
+  icon: HiOutlineCube,
+  children: [
+    { key: "batch-traceability", label: "Traceability & Flow", href: "/batch-activity/traceability" },
+    { key: "batch-logs", label: "Audit & Event Logs", href: "/batch-activity/logs" },
+  ],
+};
+
+const AUDIT_TRAIL_ITEM: MenuItem = {
+  key: "audit-trail",
+  label: "Audit Trail",
+  icon: HiOutlineMagnifyingGlass,
+  href: "/audit-trail",
+};
+
+/** Menu operasional gudang — selaras dengan RBAC di FE & route guard. */
+function warehouseOperationsMenu(role: UserRole): MenuItem[] {
+  const menu: MenuItem[] = [
+    { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
+  ];
+
+  const inbound = inboundPurchasingItem(role);
+  if (inbound) menu.push(inbound);
+
+  const storage = storageMenuForRole(role);
+  if (storage) menu.push(storage);
+
+  menu.push(BATCH_ACTIVITY_MENU);
+  menu.push({ ...STOCK_OUTBOUND_ITEM, children: [...(STOCK_OUTBOUND_ITEM.children ?? [])] });
+
+  if (role === "WAREHOUSE_ADMIN") {
+    menu.push(AUDIT_TRAIL_ITEM);
+  }
+
+  menu.push(REPORTS_MENU);
+
+  return withStockOutboundMenuForRole(menu, role);
+}
 
 // ─────────────────────────────────────────────
 //  Role-based menu builders
@@ -392,23 +434,7 @@ export function getMainMenuForRole(role: string | undefined): MenuItem[] {
 
   // ── Warehouse Staff / Admin ──
   if (role === "WAREHOUSE_STAFF" || role === "WAREHOUSE_ADMIN") {
-    const inbound = inboundPurchasingItem(role);
-    const storage = storageMenuForRole(role);
-    const menu: MenuItem[] = [
-      { key: "home", label: "Home", icon: HiOutlineHome, href: "/home" },
-      {
-        key: "dashboard",
-        label: "Dashboard",
-        icon: HiOutlineChartBarSquare,
-        children: [{ key: "dashboard-overview", label: "Overview", href: "/dashboard" }],
-      },
-    ];
-    if (inbound) menu.push(inbound);
-    if (storage) menu.push(storage);
-    return withStockOutboundMenuForRole(
-      withAuditTrailMenuForRole(menu, role),
-      role
-    );
+    return warehouseOperationsMenu(role);
   }
 
   // ── Semua role lain: full menu dengan filter bertahap ──

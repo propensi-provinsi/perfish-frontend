@@ -27,6 +27,7 @@ export interface ColdStorageResponse extends AuditFields {
   branchName: string;
   csCode: string;
   csName: string;
+  capacityTon?: number | string | null;
   isActive: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface ColdStorageRequest {
   branchId: number;
   csCode: string;
   csName: string;
+  capacityTon?: number | string | null;
 }
 
 // ── Storage Block ─────────────────────────────────────────────────

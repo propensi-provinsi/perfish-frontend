@@ -5,17 +5,23 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
 import { ColdStoragePageGuard } from "@/components/cold-storage/ColdStorageModuleShell";
+import ConfirmActionModal from "@/components/cold-storage/ConfirmActionModal";
 import ColdStorageModuleNav from "@/components/cold-storage/ColdStorageModuleNav";
 import Button from "@/components/ui/Button";
+import { useAuth } from "@/context/AuthContext";
 import { getColdStorages } from "@/lib/expiry";
 import {
+  COLD_STORAGE_PENDING_APPROVAL_MSG,
   createStockOpnameSession,
   deleteStockOpnameSession,
   finalizeStockOpnameSession,
   getStockOpnameSession,
+  listPendingColdStorageApprovals,
   listStockOpnameSessions,
   updateStockOpnameLines,
 } from "@/lib/coldstorage-api";
+import { canViewColdStorageApprovals } from "@/lib/rbac";
+import { formatIdDateTime, resolveActorDisplay } from "@/lib/coldstorage-format";
 import {
   TableListPaginationFooter,
   TableListPaginationToolbar,
@@ -33,6 +39,13 @@ import {
 } from "@/lib/coldstorage-ui";
 import type { ColdStorageData } from "@/types";
 import type { StockOpnameLineResponse, StockOpnameSessionResponse } from "@/types/coldstorage";
+
+function canEditPostedSession(postedAt: string | null | undefined): boolean {
+  if (!postedAt) return false;
+  const posted = new Date(postedAt);
+  if (Number.isNaN(posted.getTime())) return false;
+  return Date.now() - posted.getTime() <= 24 * 60 * 60 * 1000;
+}
 
 function todayIsoDate() {
   const d = new Date();
@@ -83,9 +96,14 @@ function StockOpnameStatusBadge({ status }: { status: string }) {
   );
 }
 
+const PENDING_OPNAME_BADGE =
+  "ml-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-100";
+
 function StockOpnamePageInner() {
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const presetColdStorageId = searchParams.get("coldStorageId");
+  const presetSessionId = searchParams.get("sessionId");
   const lockedWarehouse = presetColdStorageId != null && presetColdStorageId !== "";
 
   const [coldStorages, setColdStorages] = useState<ColdStorageData[]>([]);
@@ -101,6 +119,26 @@ function StockOpnamePageInner() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
+  const [finalizeConfirmOpen, setFinalizeConfirmOpen] = useState(false);
+  const [pendingOpnameSessionIds, setPendingOpnameSessionIds] = useState<Set<number>>(() => new Set());
+
+  const loadPendingOpnameSessions = useCallback(async () => {
+    if (!canViewColdStorageApprovals(user?.role)) {
+      setPendingOpnameSessionIds(new Set());
+      return;
+    }
+    try {
+      const all = await listPendingColdStorageApprovals();
+      const ids = new Set(
+        all
+          .filter((r) => r.operationType === "STOCK_OPNAME_POST" && r.relatedSessionId != null)
+          .map((r) => Number(r.relatedSessionId)),
+      );
+      setPendingOpnameSessionIds(ids);
+    } catch {
+      setPendingOpnameSessionIds(new Set());
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     if (lockedWarehouse) {
@@ -145,11 +183,40 @@ function StockOpnamePageInner() {
     void (async () => {
       try {
         await loadSessions();
+        await loadPendingOpnameSessions();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Gagal memuat sesi stock opname");
       }
     })();
-  }, [coldStorageId, loadSessions]);
+  }, [coldStorageId, loadSessions, loadPendingOpnameSessions]);
+
+  useEffect(() => {
+    const sessionId = presetSessionId ? Number(presetSessionId) : NaN;
+    if (!Number.isFinite(sessionId) || sessionId <= 0) return;
+    void (async () => {
+      try {
+        const s = await getStockOpnameSession(sessionId);
+        if (s.coldStorageId != null) {
+          setColdStorageId(s.coldStorageId);
+        }
+        setActiveSession(s);
+        const allowPostedEdit = s.status === "POSTED" && canEditPostedSession(s.postedAt);
+        setSessionEditMode(s.status === "DRAFT" || allowPostedEdit);
+        const nc: Record<number, string> = {};
+        const nt: Record<number, string> = {};
+        for (const line of s.lines ?? []) {
+          nc[line.lineId] =
+            line.countedQtyKg != null && line.countedQtyKg !== "" ? String(line.countedQtyKg) : "";
+          nt[line.lineId] =
+            line.countedTempC != null && line.countedTempC !== "" ? String(line.countedTempC) : "";
+        }
+        setCounts(nc);
+        setTemps(nt);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Gagal membuka draft stock opname");
+      }
+    })();
+  }, [presetSessionId]);
 
   const presetLabel = useMemo(() => {
     if (!lockedWarehouse || coldStorageId === "") return null;
@@ -160,8 +227,12 @@ function StockOpnamePageInner() {
   const [sessionEditMode, setSessionEditMode] = useState(false);
 
   const isDraft = activeSession?.status === "DRAFT";
+  const activeSessionPendingApproval =
+    activeSession != null && pendingOpnameSessionIds.has(activeSession.sessionId);
   const isPosted = activeSession?.status === "POSTED";
-  const canEditInputs = isDraft || (isPosted && sessionEditMode);
+  const canEditPosted =
+    isPosted && activeSession?.postedAt != null && canEditPostedSession(activeSession.postedAt);
+  const canEditInputs = isDraft || (canEditPosted && sessionEditMode);
 
   const warehouseTitle = useMemo(() => {
     if (coldStorageId === "") return "Gudang";
@@ -174,7 +245,8 @@ function StockOpnamePageInner() {
     setInfo(null);
     const s = await getStockOpnameSession(sessionId);
     setActiveSession(s);
-    setSessionEditMode(s.status === "DRAFT" || editMode);
+    const allowPostedEdit = s.status === "POSTED" && canEditPostedSession(s.postedAt);
+    setSessionEditMode(s.status === "DRAFT" || (editMode && allowPostedEdit));
     const nc: Record<number, string> = {};
     const nt: Record<number, string> = {};
     for (const line of s.lines ?? []) {
@@ -225,9 +297,8 @@ function StockOpnamePageInner() {
     }
   };
 
-  const handleSaveLines = async () => {
-    if (!activeSession || !canEditInputs) return;
-    const lines = (activeSession.lines ?? []).map((l) => {
+  const buildLinesPayload = (linesSource: StockOpnameLineResponse[]) => {
+    return linesSource.map((l) => {
       const raw = counts[l.lineId] ?? String(l.systemQtyKg);
       const n = Number(String(raw).replace(",", "."));
       const tRaw = (temps[l.lineId] ?? "").trim();
@@ -238,6 +309,11 @@ function StockOpnamePageInner() {
         countedTempC: t != null && Number.isFinite(t) ? t : null,
       };
     });
+  };
+
+  const handleSaveLines = async () => {
+    if (!activeSession || !canEditInputs) return;
+    const lines = buildLinesPayload(activeSession.lines ?? []);
     setBusy(true);
     setError(null);
     try {
@@ -254,15 +330,29 @@ function StockOpnamePageInner() {
     }
   };
 
-  const handleFinalize = async () => {
+  async function doFinalize() {
     if (!activeSession || !isDraft) return;
     setBusy(true);
     setError(null);
     try {
-      const posted = await finalizeStockOpnameSession(activeSession.sessionId);
-      setActiveSession(posted);
-      setInfo("Stock opname diposting — berat per batch diperbarui sesuai ukuran fisik.");
-      await loadSessions();
+      const fresh = await getStockOpnameSession(activeSession.sessionId);
+      const lines = buildLinesPayload(fresh.lines ?? []);
+      const missingTemp = lines.some((l) => l.countedTempC == null);
+      if (missingTemp) {
+        setError("Lengkapi suhu terukur untuk semua batch sebelum posting.");
+        return;
+      }
+      await updateStockOpnameLines(activeSession.sessionId, { lines });
+      const result = await finalizeStockOpnameSession(activeSession.sessionId);
+      if (result.status === "pending") {
+        setInfo(result.message ?? COLD_STORAGE_PENDING_APPROVAL_MSG);
+        await loadPendingOpnameSessions();
+      } else {
+        setActiveSession(result.data);
+        setInfo("Stock opname diposting — berat per batch diperbarui sesuai ukuran fisik.");
+        await loadSessions();
+        await loadPendingOpnameSessions();
+      }
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -270,7 +360,13 @@ function StockOpnamePageInner() {
       setError(String(msg));
     } finally {
       setBusy(false);
+      setFinalizeConfirmOpen(false);
     }
+  }
+
+  const handleFinalize = () => {
+    if (!activeSession || !isDraft) return;
+    setFinalizeConfirmOpen(true);
   };
 
   const sessionRows = useMemo(() => sessions, [sessions]);
@@ -420,10 +516,21 @@ function StockOpnamePageInner() {
                     <td className="py-2 pr-3 tabular-nums text-gray-800 dark:text-gray-100">{formatPeriodDisplay(s.periodYyyymm)}</td>
                     <td className="py-2 pr-3">
                       <StockOpnameStatusBadge status={s.status} />
+                      {s.status === "DRAFT" && pendingOpnameSessionIds.has(s.sessionId) ? (
+                        <span className={PENDING_OPNAME_BADGE}>Menunggu persetujuan</span>
+                      ) : null}
                     </td>
                     <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-200">
-                      {s.postedAt ? new Date(s.postedAt).toLocaleString() : "—"}
-                      {s.postedBy ? ` · ${s.postedBy}` : ""}
+                      {s.postedAt ? (
+                        <>
+                          <strong>{formatIdDateTime(s.postedAt)}</strong>
+                          {s.postedBy ? (
+                            <> (oleh {resolveActorDisplay(s.postedBy)})</>
+                          ) : null}
+                        </>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-xs text-gray-600 dark:text-gray-200">{s.notes ?? "—"}</td>
                     <td className="py-2 pr-3 text-right">
@@ -436,7 +543,7 @@ function StockOpnamePageInner() {
                         >
                           Buka
                         </Button>
-                        {s.status === "POSTED" ? (
+                        {s.status === "POSTED" && canEditPostedSession(s.postedAt) ? (
                           <Button
                             type="button"
                             size="sm"
@@ -447,7 +554,7 @@ function StockOpnamePageInner() {
                             Edit
                           </Button>
                         ) : null}
-                        {s.status === "DRAFT" && (
+                        {s.status === "DRAFT" && !pendingOpnameSessionIds.has(s.sessionId) && (
                           <Button
                             type="button"
                             size="sm"
@@ -484,7 +591,16 @@ function StockOpnamePageInner() {
               <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
                 <span>Sesi #{activeSession.sessionId}</span>
                 <StockOpnameStatusBadge status={activeSession.status} />
+                {activeSessionPendingApproval ? (
+                  <span className={PENDING_OPNAME_BADGE}>Menunggu persetujuan admin</span>
+                ) : null}
               </h2>
+              {activeSessionPendingApproval ? (
+                <p className="mt-1 text-xs text-cyan-800 dark:text-cyan-200">
+                  Permintaan posting sesi ini sedang menunggu persetujuan Warehouse Admin. Lihat detail di panel
+                  Persetujuan Pending di atas.
+                </p>
+              ) : null}
               {activeSession.notes ? (
                 <p className="text-xs text-gray-500 dark:text-gray-400">{activeSession.notes}</p>
               ) : null}
@@ -495,12 +611,12 @@ function StockOpnamePageInner() {
                   <Button type="button" variant="outline" size="sm" onClick={() => void handleSaveLines()} disabled={busy}>
                     {isPosted ? "Simpan perubahan" : "Simpan berat & suhu"}
                   </Button>
-                  {isDraft ? (
+                  {isDraft && !activeSessionPendingApproval ? (
                     <Button
                       type="button"
                       size="sm"
                       className="!bg-cyan !text-white hover:!bg-cyan-hover"
-                      onClick={() => void handleFinalize()}
+                      onClick={handleFinalize}
                       disabled={busy}
                     >
                       Posting
@@ -626,6 +742,18 @@ function StockOpnamePageInner() {
           />
         </section>
       )}
+
+      {finalizeConfirmOpen && activeSession && (
+        <ConfirmActionModal
+          title="Posting Stock Opname"
+          message={`Yakin memposting sesi stock opname #${activeSession.sessionId}? Berat batch akan diperbarui sesuai hasil opname.`}
+          confirmLabel="Posting"
+          busy={busy}
+          onConfirm={() => void doFinalize()}
+          onCancel={() => setFinalizeConfirmOpen(false)}
+        />
+      )}
+
     </div>
   );
 }
