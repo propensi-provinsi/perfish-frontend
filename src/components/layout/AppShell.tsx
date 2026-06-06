@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import ChatbotWidgets from "@/components/chatbot/ChatbotWidgets";
 import Sidebar from "./Sidebar";
 import TopHeader from "./TopHeader";
 
@@ -54,6 +55,8 @@ export default function AppShell({ children, mainClassName }: AppShellProps) {
           {children}
         </main>
       </div>
+
+      <ChatbotWidgets sidebarCollapsed={collapsed} />
     </div>
   );
 }
