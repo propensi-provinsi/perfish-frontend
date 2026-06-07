@@ -29,9 +29,18 @@ export interface ChatRequest {
   current_path?: string;
 }
 
+export interface RetrievedChunk {
+  id: string;
+  source: string;
+  title: string;
+  content: string;
+  score: number;
+}
+
 export interface ChatResponse {
   session_id: string;
   reply: string;
+  retrieved_chunks: RetrievedChunk[];
 }
 
 export interface FeedbackRequest {

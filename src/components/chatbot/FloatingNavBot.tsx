@@ -7,6 +7,7 @@ import {
   sendChatMessage,
   type ChatHistoryMessage,
   type ChatbotUser,
+  type RetrievedChunk,
 } from "@/lib/chatbot-api";
 
 interface FloatingNavBotProps {
@@ -15,6 +16,7 @@ interface FloatingNavBotProps {
 
 interface UiMessage extends ChatHistoryMessage {
   id: string;
+  retrievedChunks?: RetrievedChunk[];
 }
 
 function createSessionId() {
@@ -80,6 +82,7 @@ export default function FloatingNavBot({ user }: FloatingNavBotProps) {
           id: createSessionId(),
           role: "assistant",
           content: response.reply,
+          retrievedChunks: response.retrieved_chunks,
         },
       ]);
     } catch (err) {
@@ -139,6 +142,33 @@ export default function FloatingNavBot({ user }: FloatingNavBotProps) {
                   }`}
                 >
                   {item.content}
+                  {item.role === "assistant" &&
+                    item.retrievedChunks != null &&
+                    item.retrievedChunks.length > 0 && (
+                      <details className="mt-3 border-t border-gray-300 pt-2 text-xs dark:border-white/15">
+                        <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-300">
+                          Retrieved chunks ({item.retrievedChunks.length})
+                        </summary>
+                        <div className="mt-2 space-y-2">
+                          {item.retrievedChunks.map((chunk, index) => (
+                            <section
+                              key={`${chunk.id}-${index}`}
+                              className="rounded-md border border-gray-200 bg-white p-2 text-gray-700 dark:border-white/10 dark:bg-dark-section dark:text-gray-200"
+                            >
+                              <div className="font-medium">
+                                [{index + 1}] {chunk.source}
+                              </div>
+                              <div className="text-gray-500 dark:text-gray-400">
+                                {chunk.title} | score {chunk.score.toFixed(4)}
+                              </div>
+                              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 font-sans text-[11px] leading-relaxed text-gray-700 dark:bg-black/20 dark:text-gray-200">
+                                {chunk.content}
+                              </pre>
+                            </section>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                 </div>
               </div>
             ))}
